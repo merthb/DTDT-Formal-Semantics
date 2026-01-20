@@ -43,6 +43,7 @@ with i_expr : Type :=
 | EAnd    : i_expr -> i_expr -> i_expr
 | EOr     : i_expr -> i_expr -> i_expr
 | EImp    : i_expr -> i_expr -> i_expr
+| EEq     : i_expr -> i_expr -> i_expr
 | ENewRef : i_ty -> i_expr -> i_expr
 | EGet    : i_expr -> i_expr               (* !e *)
 | ESet    : i_expr -> i_expr -> i_expr       (* e := e *)
@@ -123,6 +124,15 @@ Compute is_pure_term (EApp (EConst "f") (EVar "a")) [] [].
 Compute is_pure_term (EApp (EConst "f") (EVar "a")) [("a"%string , TSet "x" BBool (EBool false))] [].
 Compute is_pure_term (EApp (EConst "f") (EVar "a")) [("a"%string , TSet "x" BBool (EConst "b"))] [("f"%string , TArr "f" (TBase BBool) (TBase BBool))].
 
+(* --- Selfification rule ------------------------------------------------------ *)
+
+Fixpoint self (type : i_ty) (term : i_expr) : i_ty :=
+  match type with
+  | TBase ty => TSet ("x"%string) ty (EEq (EVar "x") term)
+  | TSet var tb expr => TSet var tb (EAnd expr (EEq (EVar var) term))
+  | TArr _ (TBase ty) ty2 => TArr ("x"%string) (TBase ty) (self ty2 (EApp term (EVar "x")))
+  | x => x
+  end.
 
 (* --- Syntax: types and expressions (surface language) ------------------ *)
 
