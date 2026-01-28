@@ -1,7 +1,7 @@
-Require Import Coq.Strings.String.
-Require Import Coq.Lists.List.
-Require Import Coq.Init.Nat.
-Require Import Coq.Bool.Bool.
+Require Export Coq.Strings.String.
+Require Export Coq.Lists.List.
+Require Export Coq.Init.Nat.
+Require Export Coq.Bool.Bool.
 Import ListNotations.
 
 (* --- Abstract base types ------------------------------------------------ *)
@@ -35,6 +35,7 @@ with i_expr : Type :=
 | EVar    : string -> i_expr
 | EFix    : string -> string -> i_ty -> i_ty -> i_expr -> i_expr (* fix f (x : τ1) : τ2 . e *)
 | EApp    : i_expr -> i_expr -> i_expr
+| EPlus   : i_expr -> i_expr -> i_expr
 | EPair   : i_expr -> i_expr -> i_expr
 | EFst    : i_expr -> i_expr
 | ESnd    : i_expr -> i_expr
@@ -79,59 +80,6 @@ Fixpoint fun_imp_lookup (f : fun_imp_list) (x : string) : option i_expr :=
   match f with
   | [] => None
   | (y, e) :: ys => if String.eqb x y then Some e else fun_imp_lookup ys x
-  end.
-
-(* --- Pure term validation ------------------------------------------------------ *)
-
-(*
-Pure terms are:
-- variables whose essential type is a base type
-- constants with simple type (τb1 → τb2 → ... → τbn)
-- application of pure terms to pure terms
- *)
-
-Fixpoint is_simple_type (type : i_ty) : bool :=
-  match type with
-  | TBase _ => true
-  | TArr fname t1 t2 => is_simple_type t1 && is_simple_type t2
-  | TProd t1 t2 => is_simple_type t1 && is_simple_type t2
-  | _ => false
-  end.
-
-Definition essential_type_is_base_type (type : i_ty) : bool :=
-  match type with
-  | TBase _ => true
-  | TSet _ _ _ => true
-  | _ => false
-  end.
-
-Fixpoint is_pure_term (term : i_expr) (var_con : var_context) (const_con : const_context) : bool :=
-  match term with
-  | EConst con_name => match (const_ctx_lookup const_con con_name) with
-    | Some type => is_simple_type type
-    | _ => false
-    end
-  | EVar var_name => match (var_ctx_lookup var_con var_name) with
-    | Some type => essential_type_is_base_type type
-    | _ => false
-    end
-  | EApp exp1 exp2 => is_pure_term exp1 var_con const_con && is_pure_term exp2 var_con const_con
-  | _ => false
-  end.
-
-(* Some testing just in case *)
-Compute is_pure_term (EApp (EConst "f") (EVar "a")) [] [].
-Compute is_pure_term (EApp (EConst "f") (EVar "a")) [("a"%string , TSet "x" BBool (EBool false))] [].
-Compute is_pure_term (EApp (EConst "f") (EVar "a")) [("a"%string , TSet "x" BBool (EConst "b"))] [("f"%string , TArr "f" (TBase BBool) (TBase BBool))].
-
-(* --- Selfification rule ------------------------------------------------------ *)
-
-Fixpoint self (type : i_ty) (term : i_expr) : i_ty :=
-  match type with
-  | TBase ty => TSet ("x"%string) ty (EEq (EVar "x") term)
-  | TSet var tb expr => TSet var tb (EAnd expr (EEq (EVar var) term))
-  | TArr _ (TBase ty) ty2 => TArr ("x"%string) (TBase ty) (self ty2 (EApp term (EVar "x")))
-  | x => x
   end.
 
 (* --- Syntax: types and expressions (surface language) ------------------ *)

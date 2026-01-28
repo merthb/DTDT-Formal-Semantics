@@ -1,0 +1,4 @@
+-Q src DTDT
+
+src/syntax.v
+src/semantic_rules.v
