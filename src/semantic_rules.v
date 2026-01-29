@@ -17,7 +17,7 @@ Pure terms are:
 Fixpoint is_simple_type (type : i_ty) : bool :=
   match type with
   | TBase _ => true
-  | TArr fname t1 t2 => is_simple_type t1 && is_simple_type t2
+  | TArr t1 t2 => is_simple_type t1 && is_simple_type t2
   | TProd t1 t2 => is_simple_type t1 && is_simple_type t2
   | _ => false
   end.
@@ -46,7 +46,7 @@ Fixpoint is_pure_term (term : i_expr) (var_con : var_context) (const_con : const
 (* Some testing just in case *)
 Compute is_pure_term (EApp (EConst "f") (EVar "a")) [] [].
 Compute is_pure_term (EApp (EConst "f") (EVar "a")) [("a"%string , TSet "x" BBool (EBool false))] [].
-Compute is_pure_term (EApp (EConst "f") (EVar "a")) [("a"%string , TSet "x" BBool (EConst "b"))] [("f"%string , TArr "f" (TBase BBool) (TBase BBool))].
+Compute is_pure_term (EApp (EConst "f") (EVar "a")) [("a"%string , TSet "x" BBool (EConst "b"))] [("f"%string , TArr (TBase BBool) (TBase BBool))].
 
 (* --- Selfification rule ------------------------------------------------------ *)
 
@@ -75,7 +75,8 @@ with ty_vars (type : i_ty) : list string :=
   match type with
   | TBase _ => []
   | TSet var _ exp => var :: exp_vars exp
-  | TArr var ty1 ty2 => var :: ty_vars ty1 ++ ty_vars ty2
+  | TArr ty1 ty2 => ty_vars ty1 ++ ty_vars ty2
+  | TArrDep var ty1 ty2 => var :: ty_vars ty1 ++ ty_vars ty2
   | TProd ty1 ty2 => ty_vars ty1 ++ ty_vars ty2
   | TRef type => ty_vars type
   end.
@@ -87,9 +88,9 @@ Fixpoint self (type : i_ty) (term : i_expr) : i_ty :=
   match type with
   | TBase ty => TSet (fresh_string_list (exp_vars term)) ty (EEq (EVar (fresh_string_list (exp_vars term))) term)
   | TSet var tb expr => TSet var tb (EAnd expr (EEq (EVar var) term))
-  | TArr _ (TBase ty) ty2 => TArr (fresh_string_list (exp_vars term)) (TBase ty) (self ty2 (EApp term (EVar (fresh_string_list (exp_vars term)))))
+  | TArr (TBase ty) ty2 => TArrDep (fresh_string_list (exp_vars term)) (TBase ty) (self ty2 (EApp term (EVar (fresh_string_list (exp_vars term)))))
   | x => x
   end.
 
 Compute self (TBase BNat) (EVar ("x"%string)).
-Compute self (TArr ("n"%string) (TBase BNat) (TArr ("m"%string) (TBase BNat) (TSet ("l"%string) BNat (EEq (EVar ("l"%string)) (EPlus (EVar ("n"%string)) (EVar ("m"%string))))))) (EVar ("+"%string)).
+Compute self (TArr (TBase BNat) (TArr (TBase BNat) (TBase BNat))) (EVar ("+"%string)).

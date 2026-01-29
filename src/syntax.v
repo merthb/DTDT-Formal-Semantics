@@ -17,11 +17,12 @@ Inductive BaseT : Type :=
 (* --- Syntax: types and expressions (!! internal language only !!) ------------------ *)
 
 Inductive i_ty : Type :=
-| TBase : BaseT -> i_ty                        (* τ_b *)
-| TSet  : string -> BaseT -> i_expr -> i_ty    (* {x : τb | e} e must be boolean containing x *)
-| TArr  : string -> i_ty -> i_ty -> i_ty        (* Πx : τ1. τ2 (x can occur in τ2 - dependent)*)
-| TProd : i_ty -> i_ty -> i_ty                 (* τ1 × τ2 *)
-| TRef  : i_ty -> i_ty                         (* τ ref *)
+| TBase     : BaseT -> i_ty                        (* τ_b *)
+| TSet      : string -> BaseT -> i_expr -> i_ty    (* {x : τb | e} e must be boolean containing x *)
+| TArr      : i_ty -> i_ty -> i_ty
+| TArrDep   : string -> i_ty -> i_ty -> i_ty        (* Πx : τ1. τ2 (x can occur in τ2 - dependent)*)
+| TProd     : i_ty -> i_ty -> i_ty                 (* τ1 × τ2 *)
+| TRef      : i_ty -> i_ty                         (* τ ref *)
 
 with i_expr : Type :=
 (* have to store the values somewhere
