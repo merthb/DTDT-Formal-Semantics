@@ -57,7 +57,7 @@ with i_ty_ind_mut := Induction for i_ty Sort Prop.
 
 (* --- Context and context lookup ------------------------------------------------ *)
 
-(* Γ - the context for variables *)
+(* Γ (\Gamma) - the context for variables *)
 Definition var_context := list (string * i_ty).
 
 Fixpoint var_ctx_lookup (Γ : var_context) (x : string) : option i_ty :=
@@ -65,8 +65,9 @@ Fixpoint var_ctx_lookup (Γ : var_context) (x : string) : option i_ty :=
   | [] => None
   | (y, t) :: ys => if String.eqb x y then Some t else var_ctx_lookup ys x
   end.
+Notation "Γ[ x ] c" := (var_ctx_lookup c x) (at level 1).
 
-(* F - the context for constants *)
+(* Φ (\F) - the context for constants *)
 Definition const_context := list (string * i_ty).
 
 Fixpoint const_ctx_lookup (F : const_context) (x : string) : option i_ty :=
@@ -74,7 +75,9 @@ Fixpoint const_ctx_lookup (F : const_context) (x : string) : option i_ty :=
   | [] => None
   | (y, t) :: ys => if String.eqb x y then Some t else const_ctx_lookup ys x
   end.
+Notation "Φ[ x ] c" := (const_ctx_lookup c x) (at level 10).
 
+(* ι (\i) - the context for function implementations *)
 Definition fun_imp_list := list (string * i_expr).
 
 Fixpoint fun_imp_lookup (f : fun_imp_list) (x : string) : option i_expr :=
@@ -82,6 +85,7 @@ Fixpoint fun_imp_lookup (f : fun_imp_list) (x : string) : option i_expr :=
   | [] => None
   | (y, e) :: ys => if String.eqb x y then Some e else fun_imp_lookup ys x
   end.
+Notation "ι[ x ] c" := (fun_imp_lookup c x) (at level 10).
 
 (* --- Syntax: types and expressions (surface language) ------------------ *)
 

@@ -5,49 +5,6 @@ From stdpp Require Export strings.
 From stdpp Require Import stringmap.
 
 
-(* --- Pure term validation ------------------------------------------------------ *)
-
-(*
-Pure terms are:
-- variables whose essential type is a base type
-- constants with simple type (τb1 → τb2 → ... → τbn)
-- application of pure terms to pure terms
- *)
-
-Fixpoint is_simple_type (type : i_ty) : bool :=
-  match type with
-  | TBase _ => true
-  | TArr t1 t2 => is_simple_type t1 && is_simple_type t2
-  | TProd t1 t2 => is_simple_type t1 && is_simple_type t2
-  | _ => false
-  end.
-
-Definition essential_type_is_base_type (type : i_ty) : bool :=
-  match type with
-  | TBase _ => true
-  | TSet _ _ _ => true
-  | _ => false
-  end.
-
-Fixpoint is_pure_term (term : i_expr) (var_con : var_context) (const_con : const_context) : bool :=
-  match term with
-  | EConst con_name => match (const_ctx_lookup const_con con_name) with
-    | Some type => is_simple_type type
-    | _ => false
-    end
-  | EVar var_name => match (var_ctx_lookup var_con var_name) with
-    | Some type => essential_type_is_base_type type
-    | _ => false
-    end
-  | EApp exp1 exp2 => is_pure_term exp1 var_con const_con && is_pure_term exp2 var_con const_con
-  | _ => false
-  end.
-
-(* Some testing just in case *)
-Compute is_pure_term (EApp (EConst "f") (EVar "a")) [] [].
-Compute is_pure_term (EApp (EConst "f") (EVar "a")) [("a"%string , TSet "x" BBool (EBool false))] [].
-Compute is_pure_term (EApp (EConst "f") (EVar "a")) [("a"%string , TSet "x" BBool (EConst "b"))] [("f"%string , TArr (TBase BBool) (TBase BBool))].
-
 (* --- Selfification rule ------------------------------------------------------ *)
 
 Fixpoint exp_vars (term : i_expr) : list string :=
@@ -94,3 +51,110 @@ Fixpoint self (type : i_ty) (term : i_expr) : i_ty :=
 
 Compute self (TBase BNat) (EVar ("x"%string)).
 Compute self (TArr (TBase BNat) (TArr (TBase BNat) (TBase BNat))) (EVar ("+"%string)).
+
+
+(* --- Pure term validation ------------------------------------------------------ *)
+
+(*
+Pure terms are:
+- variables whose essential type is a base type
+- constants with simple type (τb1 → τb2 → ... → τbn)
+- application of pure terms to pure terms
+ *)
+
+Fixpoint is_simple_type (type : i_ty) : bool :=
+  match type with
+  | TBase _ => true
+  | TArr t1 t2 => is_simple_type t1 && is_simple_type t2
+  | TProd t1 t2 => is_simple_type t1 && is_simple_type t2
+  | _ => false
+  end.
+
+Definition essential_type_is_base_type (type : i_ty) : bool :=
+  match type with
+  | TBase _ => true
+  | TSet _ _ _ => true
+  | _ => false
+  end.
+Notation "β[ t ]" := (essential_type_is_base_type t) (at level 10).
+
+
+(* Fixpoint is_pure_term (term : i_expr) (var_con : var_context) (const_con : const_context) : bool :=
+  match term with
+  | EConst con_name => match (const_ctx_lookup const_con con_name) with
+    | Some type => is_simple_type type
+    | _ => false
+    end
+  | EVar var_name => match (var_ctx_lookup var_con var_name) with
+    | Some type => essential_type_is_base_type type
+    | _ => false
+    end
+  | EApp exp1 exp2 => is_pure_term exp1 var_con const_con && is_pure_term exp2 var_con const_con
+  | _ => false
+  end.
+
+(* Some testing just in case *)
+Compute is_pure_term (EApp (EConst "f") (EVar "a")) [] [].
+Compute is_pure_term (EApp (EConst "f") (EVar "a")) [("a"%string , TSet "x" BBool (EBool false))] [].
+Compute is_pure_term (EApp (EConst "f") (EVar "a")) [("a"%string , TSet "x" BBool (EConst "b"))] [("f"%string , TArr (TBase BBool) (TBase BBool))]. *)
+
+
+
+(* Fancier way *)
+
+Inductive has_type_pure
+  (var_con : var_context)
+  (const_con : const_context)
+  : i_expr -> i_ty -> Prop :=
+  | PVar :
+    forall x τb,
+      Γ[ x ] var_con = Some τb ->
+      β[ τb ] ->
+      has_type_pure var_con const_con (EVar x) τb
+  | PNat :
+    forall n,
+    has_type_pure var_con const_con (ENat n) (TBase BNat)
+  | PBool :
+    forall b,
+    has_type_pure var_con const_con (EBool b) (TBase BBool)
+  | PString :
+    forall s,
+    has_type_pure var_con const_con (EString s) (TBase BString)
+  | PUnit :
+    forall u,
+    has_type_pure var_con const_con (EUnit u) (TBase BUnit)
+  | PConst :
+    forall c τ,
+      Φ[ c ] const_con = Some τ ->
+      is_simple_type τ ->
+      has_type_pure var_con const_con (EConst c) τ
+  | PApp :
+    forall e₁ e₂ τ₁ τ₂,
+      β[ τ₁ ] ->
+      has_type_pure var_con const_con e₁ (TArr τ₁ τ₂) ->
+      has_type_pure var_con const_con e₂ τ₁ ->
+      has_type_pure var_con const_con (EApp e₁ e₂) τ₂.
+
+Lemma pure_plus_app_nat :
+  has_type_pure [( "n" , TBase BNat)] [( "+" , TArr (TBase BNat) (TArr (TBase BNat) (TBase BNat)))] (EApp (EConst "+"%string) (ENat 1)) (TArr (TBase BNat) (TBase BNat)).
+  Proof.
+  apply (PApp _ _ _ _ (TBase BNat) _).
+  - simpl. reflexivity.
+  - apply PConst.
+    + simpl. reflexivity.
+    + simpl. reflexivity.
+  - apply PNat.
+  Qed.
+
+Lemma pure_plus_app_var :
+  has_type_pure [( "n" , TBase BNat)] [( "+" , TArr (TBase BNat) (TArr (TBase BNat) (TBase BNat)))] (EApp (EConst "+"%string) (EVar "n")) (TArr (TBase BNat) (TBase BNat)).
+  Proof.
+  apply (PApp _ _ _ _ (TBase BNat) _).
+  - simpl. reflexivity.
+  - apply PConst.
+    + simpl. reflexivity.
+    + simpl. reflexivity.
+  - apply PVar.
+    + simpl. reflexivity.
+    + simpl. reflexivity.
+  Qed.
