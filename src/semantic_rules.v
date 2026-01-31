@@ -103,37 +103,37 @@ Compute is_pure_term (EApp (EConst "f") (EVar "a")) [("a"%string , TSet "x" BBoo
 (* Fancier way *)
 
 Inductive has_type_pure
-  (var_con : var_context)
-  (const_con : const_context)
+  ( Γ : var_context)
+  (Φ : const_context)
   : i_expr -> i_ty -> Prop :=
   | PVar :
     forall x τb,
-      Γ[ x ] var_con = Some τb ->
+      Γ[ x ] Γ = Some τb ->
       β[ τb ] ->
-      has_type_pure var_con const_con (EVar x) τb
+      has_type_pure Γ Φ (EVar x) τb
   | PNat :
     forall n,
-    has_type_pure var_con const_con (ENat n) (TBase BNat)
+    has_type_pure Γ Φ (ENat n) (TBase BNat)
   | PBool :
     forall b,
-    has_type_pure var_con const_con (EBool b) (TBase BBool)
+    has_type_pure Γ Φ (EBool b) (TBase BBool)
   | PString :
     forall s,
-    has_type_pure var_con const_con (EString s) (TBase BString)
+    has_type_pure Γ Φ (EString s) (TBase BString)
   | PUnit :
     forall u,
-    has_type_pure var_con const_con (EUnit u) (TBase BUnit)
+    has_type_pure Γ Φ (EUnit u) (TBase BUnit)
   | PConst :
     forall c τ,
-      Φ[ c ] const_con = Some τ ->
+      Φ[ c ] Φ = Some τ ->
       is_simple_type τ ->
-      has_type_pure var_con const_con (EConst c) τ
+      has_type_pure Γ Φ (EConst c) τ
   | PApp :
     forall e₁ e₂ τ₁ τ₂,
       β[ τ₁ ] ->
-      has_type_pure var_con const_con e₁ (TArr τ₁ τ₂) ->
-      has_type_pure var_con const_con e₂ τ₁ ->
-      has_type_pure var_con const_con (EApp e₁ e₂) τ₂.
+      has_type_pure Γ Φ e₁ (TArr τ₁ τ₂) ->
+      has_type_pure Γ Φ e₂ τ₁ ->
+      has_type_pure Γ Φ (EApp e₁ e₂) τ₂.
 
 Lemma pure_plus_app_nat :
   has_type_pure [( "n" , TBase BNat)] [( "+" , TArr (TBase BNat) (TArr (TBase BNat) (TBase BNat)))] (EApp (EConst "+"%string) (ENat 1)) (TArr (TBase BNat) (TBase BNat)).
@@ -158,3 +158,96 @@ Lemma pure_plus_app_var :
     + simpl. reflexivity.
     + simpl. reflexivity.
   Qed.
+
+(* --- Well-formed type checking ------------------------------------------------------ *)
+
+Inductive ty_valid
+  (Γ : var_context)
+  (Φ : const_context)
+  : i_ty -> Prop :=
+  | VBase :
+    forall (τb : BaseT),
+      ty_valid Γ Φ (TBase τb)
+  | VSet :
+    forall var (τb : BaseT) e,
+      has_type_pure ((var , TBase τb) :: Γ) Φ e (TBase BBool) ->
+      ty_valid Γ Φ (TSet var τb e)
+  | VFun :
+    forall τ₁ τ₂,
+      ty_valid Γ Φ τ₁ ->
+      ty_valid Γ Φ τ₂ ->
+      ty_valid Γ Φ (TArr τ₁ τ₂)
+  | VFunDep :
+    forall var τ₁ τ₂,
+      ty_valid Γ Φ τ₁ ->
+      ty_valid ((var, τ₁) :: Γ) Φ τ₂ ->
+      ty_valid Γ Φ (TArrDep var τ₁ τ₂)
+  | VPair :
+    forall τ₁ τ₂,
+      ty_valid Γ Φ τ₁ ->
+      ty_valid Γ Φ τ₂ ->
+      ty_valid Γ Φ (TProd τ₁ τ₂)
+  | VRef :
+    forall τ₁,
+      ty_valid Γ Φ τ₁ ->
+      ty_valid Γ Φ (TRef τ₁).
+
+(* --- Subtyping ---------------------------------------------------------------------- *)
+
+Inductive subtype 
+  (Γ : var_context)
+  (Φ : const_context) :
+  i_ty -> i_ty -> Prop :=
+  | SBase :
+    forall b,
+      subtype Γ Φ (TBase b) (TBase b)
+  | SSet :
+    forall var τb e₁ e₂,
+      ty_valid Γ Φ (TSet var τb e₁) ->
+      ty_valid Γ Φ (TSet var τb e₂) ->
+      has_type_pure ((var , TBase τb) :: Γ) Φ
+        (EImp e₁ e₂) (TBase BBool) -> (* TODO: should be |= *)
+      subtype Γ Φ (TSet var τb e₁) (TSet var τb e₂)
+  | SSetBase :
+    forall var τb e,
+      ty_valid Γ Φ (TSet var τb e) ->
+      subtype Γ Φ (TSet var τb e) (TBase τb)
+  | SBaseSet :
+    forall var τb e,
+      ty_valid Γ Φ (TSet var τb e) ->
+      has_type_pure ((var , TBase τb) :: Γ) Φ e (TBase BBool) -> (* TODO: should be |- *)
+      subtype Γ Φ (TBase τb) (TSet var τb e)
+  | SFun :
+    forall τ₁ τ₁' τ₂ τ₂',
+      subtype Γ Φ τ₁' τ₁ ->
+      subtype Γ Φ τ₂ τ₂' ->
+      subtype Γ Φ (TArr τ₁ τ₂) (TArr τ₁' τ₂')
+  | SFunDep :
+    forall var τ₁ τ₁' τ₂ τ₂',
+      subtype Γ Φ τ₁' τ₁ ->
+      subtype ((var , τ₁') :: Γ) Φ τ₂ τ₂' ->
+      subtype Γ Φ (TArrDep var τ₁ τ₂) (TArrDep var τ₁' τ₂')
+  | SPair :
+    forall τ₁ τ₁' τ₂ τ₂',
+      subtype Γ Φ τ₁ τ₁' ->
+      subtype Γ Φ τ₂ τ₂' ->
+      subtype Γ Φ (TProd τ₁ τ₂) (TProd τ₁' τ₂')
+  | SRef :
+    forall τ τ',
+      subtype Γ Φ τ τ' ->
+      subtype Γ Φ τ' τ ->
+      subtype Γ Φ (TRef τ) (TRef τ').
+
+
+
+
+
+
+
+
+
+
+
+
+
+
