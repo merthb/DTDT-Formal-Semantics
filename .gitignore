@@ -17,6 +17,7 @@
 *.native
 *.o
 *.v.d
+*.v.crashcoqide
 *.vio
 *.vo
 *.vok
