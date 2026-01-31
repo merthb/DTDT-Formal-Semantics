@@ -67,17 +67,6 @@ Fixpoint var_ctx_lookup (Γ : var_context) (x : string) : option i_ty :=
   end.
 Notation "Γ[ x ] c" := (var_ctx_lookup c x) (at level 1).
 
-(* Γ (\Gamma) - the context for variable values *)
-Definition varval_context := list (string * i_expr).
-
-Fixpoint varval_ctx_lookup (Γ : varval_context) (x : string) : option i_expr :=
-  match Γ with
-  | [] => None
-  | (y, e) :: ys => if String.eqb x y then Some e else varval_ctx_lookup ys x
-  end.
-Notation "Γv[ x ] c" := (varval_ctx_lookup c x) (at level 1).
-
-
 (* Φ (\F) - the context for constants *)
 Definition const_context := list (string * i_ty).
 
