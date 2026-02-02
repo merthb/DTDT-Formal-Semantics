@@ -109,7 +109,31 @@ Inductive has_type_pure
       β[ τ₁ ] ->
       has_type_pure Γ Φ e₁ (TArr τ₁ τ₂) ->
       has_type_pure Γ Φ e₂ τ₁ ->
-      has_type_pure Γ Φ (EApp e₁ e₂) τ₂.
+      has_type_pure Γ Φ (EApp e₁ e₂) τ₂
+  | PNot :
+    forall b,
+    has_type_pure Γ Φ b (TBase BBool) ->
+    has_type_pure Γ Φ (ENot b) (TBase BBool)
+  | PImp :
+    forall b₁ b₂,
+    has_type_pure Γ Φ b₁ (TBase BBool) ->
+    has_type_pure Γ Φ b₂ (TBase BBool) ->
+    has_type_pure Γ Φ (EImp b₁ b₂) (TBase BBool)
+  | PAnd :
+    forall b₁ b₂,
+    has_type_pure Γ Φ b₁ (TBase BBool) ->
+    has_type_pure Γ Φ b₂ (TBase BBool) ->
+    has_type_pure Γ Φ (EAnd b₁ b₂) (TBase BBool)
+  | POr :
+    forall b₁ b₂,
+    has_type_pure Γ Φ b₁ (TBase BBool) ->
+    has_type_pure Γ Φ b₂ (TBase BBool) ->
+    has_type_pure Γ Φ (EOr b₁ b₂) (TBase BBool)
+  | PPlus :
+    forall n₁ n₂,
+    has_type_pure Γ Φ n₁ (TBase BNat) ->
+    has_type_pure Γ Φ n₂ (TBase BNat) ->
+    has_type_pure Γ Φ (EPlus n₁ n₂) (TBase BNat).
 
 Lemma pure_plus_app_nat :
   has_type_pure [( "n" , TBase BNat)] [( "+" , TArr (TBase BNat) (TArr (TBase BNat) (TBase BNat)))] (EApp (EConst "+"%string) (ENat 1)) (TArr (TBase BNat) (TBase BNat)).
@@ -214,7 +238,8 @@ Inductive eval
       eval Γ Γv Φ ι e₁ (EFix f x τ₁ τ₂ body) ->
       eval Γ Γv Φ ι e₂ v₂ ->
       value v₂ ->
-      eval ((x , τ₁) :: Γ) ((x , v₂) :: Γv) ((f , TArr τ₁ τ₂) :: Φ) ((f , EFix f x τ₁ τ₂ body) :: ι) body v₁ ->
+      eval ((x , τ₁) :: Γ) ((x , v₂) :: Γv) ((f , TArr τ₁ τ₂) :: Φ) ((f , EFix f x τ₁ τ₂ body) :: ι)
+        body v₁ ->
       eval Γ Γv Φ ι (EApp e₁ e₂) v₁
   | eval_plus :
     forall e₁ e₂ n₁ n₂,
@@ -328,54 +353,94 @@ Qed.
 (* Should this be on surface level? In paper there's a rule for dereferation too *)
 Inductive subtype 
   (Γ : var_context)
-  (Φ : const_context) :
+  (Γv : varval_context)
+  (Φ : const_context)
+  (ι : fun_imp_list) :
   i_ty -> i_ty -> Prop :=
   | SBase :
     forall b,
-      subtype Γ Φ (TBase b) (TBase b)
+      subtype Γ Γv Φ ι (TBase b) (TBase b)
   | SSet :
     forall var τb e₁ e₂,
       ty_valid Γ Φ (TSet var τb e₁) ->
       ty_valid Γ Φ (TSet var τb e₂) ->
-      has_type_pure ((var , TBase τb) :: Γ) Φ
-        (EImp e₁ e₂) (TBase BBool) -> (* TODO: should be |= *)
-      subtype Γ Φ (TSet var τb e₁) (TSet var τb e₂)
+      eval ((var , TBase τb) :: Γ) Γv Φ ι (EImp e₁ e₂) (EBool true) -> (* TODO ide valahogy a var-nak τb összes értékét is oda kéne adni (egyesével), hogy tudjon működni az eval *)
+      subtype Γ Γv Φ ι (TSet var τb e₁) (TSet var τb e₂)
   | SSetBase :
     forall var τb e,
       ty_valid Γ Φ (TSet var τb e) ->
-      subtype Γ Φ (TSet var τb e) (TBase τb)
+      subtype Γ Γv Φ ι (TSet var τb e) (TBase τb)
   | SBaseSet :
     forall var τb e,
       ty_valid Γ Φ (TSet var τb e) ->
-      has_type_pure ((var , TBase τb) :: Γ) Φ e (TBase BBool) -> (* TODO: should be |- *)
-      subtype Γ Φ (TBase τb) (TSet var τb e)
+      eval ((var , TBase τb) :: Γ) Γv Φ ι e (EBool true) -> (* TODO ide valahogy a var-nak τb összes értékét is oda kéne adni (egyesével), hogy tudjon működni az eval *)
+      subtype Γ Γv Φ ι (TBase τb) (TSet var τb e)
   | SFun :
     forall τ₁ τ₁' τ₂ τ₂',
-      subtype Γ Φ τ₁' τ₁ ->
-      subtype Γ Φ τ₂ τ₂' ->
-      subtype Γ Φ (TArr τ₁ τ₂) (TArr τ₁' τ₂')
+      subtype Γ Γv Φ ι τ₁' τ₁ ->
+      subtype Γ Γv Φ ι τ₂ τ₂' ->
+      subtype Γ Γv Φ ι (TArr τ₁ τ₂) (TArr τ₁' τ₂')
   | SFunDep :
     forall var τ₁ τ₁' τ₂ τ₂',
-      subtype Γ Φ τ₁' τ₁ ->
-      subtype ((var , τ₁') :: Γ) Φ τ₂ τ₂' ->
-      subtype Γ Φ (TArrDep var τ₁ τ₂) (TArrDep var τ₁' τ₂')
+      subtype Γ Γv Φ ι τ₁' τ₁ ->
+      subtype ((var , τ₁') :: Γ) Γv Φ ι τ₂ τ₂' ->
+      subtype Γ Γv Φ ι (TArrDep var τ₁ τ₂) (TArrDep var τ₁' τ₂')
   | SPair :
     forall τ₁ τ₁' τ₂ τ₂',
-      subtype Γ Φ τ₁ τ₁' ->
-      subtype Γ Φ τ₂ τ₂' ->
-      subtype Γ Φ (TProd τ₁ τ₂) (TProd τ₁' τ₂')
+      subtype Γ Γv Φ ι τ₁ τ₁' ->
+      subtype Γ Γv Φ ι τ₂ τ₂' ->
+      subtype Γ Γv Φ ι (TProd τ₁ τ₂) (TProd τ₁' τ₂')
   | SRef :
     forall τ τ',
-      subtype Γ Φ τ τ' ->
-      subtype Γ Φ τ' τ ->
-      subtype Γ Φ (TRef τ) (TRef τ').
+      subtype Γ Γv Φ ι τ τ' ->
+      subtype Γ Γv Φ ι τ' τ ->
+      subtype Γ Γv Φ ι (TRef τ) (TRef τ').
 
+Lemma set_sub_test : forall Γ Γv Φ ι, subtype Γ Γv Φ ι (TSet "x" BBool (ENot (EVar "x"))) (TSet "x" BBool (EBool true)).
+Proof.
+intros.
+apply SSet.
+apply VSet.
+apply PNot.
+apply PVar.
+simpl. reflexivity.
+simpl. reflexivity.
+apply VSet.
+apply PBool.
+(* apply eval_imp with (e₁ := ENot (EVar "x")) (e₂ := EBool true) (* (b₁ := ?? true és false is lehet...) *) (b₂ := true). *)
+Admitted.
 
+(* two equivalent sets *)
+Lemma set_sub_test_without_var_use : forall Γ Γv Φ ι, subtype Γ Γv Φ ι (TSet "x" BBool (ENot (EBool false))) (TSet "x" BBool (EBool true)).
+Proof.
+intros.
+apply SSet.
+apply VSet.
+apply PNot.
+apply PBool.
+apply VSet.
+apply PBool.
+apply eval_imp with (e₁ := ENot (EBool false)) (e₂ := EBool true) (b₁ := true) (b₂ := true).
+apply eval_not with (e := EBool false) (b := false).
+apply eval_bool.
+apply eval_bool.
+Qed.
 
-
-
-
-
+(* actual subsets *)
+Lemma set_sub_test_without_var_use2 : forall Γ Γv Φ ι, subtype Γ Γv Φ ι (TSet "x" BBool (ENot (EBool true))) (TSet "x" BBool (EBool true)).
+Proof.
+intros.
+apply SSet.
+apply VSet.
+apply PNot.
+apply PBool.
+apply VSet.
+apply PBool.
+apply eval_imp with (e₁ := ENot (EBool true)) (e₂ := EBool true) (b₁ := false) (b₂ := true).
+apply eval_not with (e := EBool true) (b := true).
+apply eval_bool.
+apply eval_bool.
+Qed.
 
 
 
