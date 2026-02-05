@@ -14,6 +14,14 @@ Inductive BaseT : Type :=
 | BUnit : BaseT
 .
 
+Definition base_to_set (τb : BaseT) : Set :=
+  match τb with
+  | BString => string
+  | BBool => bool
+  | BNat => nat
+  | BUnit => unit
+  end.
+
 (* --- Syntax: types and expressions (!! internal language only !!) ------------------ *)
 
 Inductive i_ty : Type :=
@@ -54,6 +62,14 @@ with i_expr : Type :=
 
 Scheme i_expr_ind_mut := Induction for i_expr Sort Prop
 with i_ty_ind_mut := Induction for i_ty Sort Prop.
+
+Definition make_expr (t : BaseT) : base_to_set t -> i_expr :=
+  match t with
+  | BString => EString
+  | BNat    => ENat
+  | BBool   => EBool
+  | BUnit   => EUnit
+  end.
 
 (* --- Context and context lookup ------------------------------------------------ *)
 
@@ -100,15 +116,46 @@ Notation "ι[ x ] c" := (fun_imp_lookup c x) (at level 10).
 
 (* --- Syntax: types and expressions (surface language) ------------------ *)
 
-(* TODO: add surface level reference types *)
 Inductive ty : Type :=
-| TInter : i_ty -> ty
+| TyBase     : BaseT -> ty
+| TySet      : string -> BaseT -> expr -> ty
+| TyArr      : ty -> ty -> ty
+| TyArrDep   : string -> ty -> ty -> ty
+| TyProd     : ty -> ty -> ty
+| TyRef      : ty -> ty
+| TyDeRef    : ty -> ty
 
 with expr : Type :=
-| EInter : i_expr -> expr
-| ESimple : expr -> expr
-| EDep : expr -> expr
+(* have to store the values somewhere
+   TODO: add more if more base types are added *)
+| ExString : string -> expr
+| ExBool : bool -> expr
+| ExNat : nat -> expr
+| ExUnit : unit -> expr
+
+| ExConst : string -> expr
+| ExVar    : string -> expr
+| ExFix    : string -> string -> ty -> ty -> expr -> expr
+| ExApp    : expr -> expr -> expr
+| ExPlus   : expr -> expr -> expr
+| ExPair   : expr -> expr -> expr
+| ExFst    : expr -> expr
+| ExSnd    : expr -> expr
+| ExIf     : expr -> expr -> expr -> expr
+| ExNot    : expr -> expr
+| ExAnd    : expr -> expr -> expr
+| ExOr     : expr -> expr -> expr
+| ExImp    : expr -> expr -> expr
+| ExEq     : expr -> expr -> expr
+| ExNewRef : ty -> expr -> expr
+| ExGet    : expr -> expr               (* !e *)
+| ExSet    : expr -> expr -> expr       (* e := e *)
+| ExDeRef  : expr -> expr
+(* TODO !d e, e :=d e *)
+
 | EAssert : expr -> ty -> expr
+| ESimple : expr -> expr
+| EDep    : expr -> expr
 .
 
 Scheme expr_ind_mut := Induction for expr Sort Prop

@@ -364,7 +364,7 @@ Inductive subtype
     forall var τb e₁ e₂,
       ty_valid Γ Φ (TSet var τb e₁) ->
       ty_valid Γ Φ (TSet var τb e₂) ->
-      eval ((var , TBase τb) :: Γ) Γv Φ ι (EImp e₁ e₂) (EBool true) -> (* TODO ide valahogy a var-nak τb összes értékét is oda kéne adni (egyesével), hogy tudjon működni az eval *)
+      ∀ (c : (base_to_set τb)), eval ((var , TBase τb) :: Γ) ((var , make_expr τb c) :: Γv) Φ ι (EImp e₁ e₂) (EBool true) ->
       subtype Γ Γv Φ ι (TSet var τb e₁) (TSet var τb e₂)
   | SSetBase :
     forall var τb e,
@@ -373,7 +373,7 @@ Inductive subtype
   | SBaseSet :
     forall var τb e,
       ty_valid Γ Φ (TSet var τb e) ->
-      eval ((var , TBase τb) :: Γ) Γv Φ ι e (EBool true) -> (* TODO ide valahogy a var-nak τb összes értékét is oda kéne adni (egyesével), hogy tudjon működni az eval *)
+      ∀ (c : (base_to_set τb)), eval ((var , TBase τb) :: Γ) ((var , make_expr τb c) :: Γv) Φ ι e (EBool true) ->
       subtype Γ Γv Φ ι (TBase τb) (TSet var τb e)
   | SFun :
     forall τ₁ τ₁' τ₂ τ₂',
@@ -399,7 +399,7 @@ Inductive subtype
 Lemma set_sub_test : forall Γ Γv Φ ι, subtype Γ Γv Φ ι (TSet "x" BBool (ENot (EVar "x"))) (TSet "x" BBool (EBool true)).
 Proof.
 intros.
-apply SSet.
+eapply SSet.
 apply VSet.
 apply PNot.
 apply PVar.
@@ -407,19 +407,26 @@ simpl. reflexivity.
 simpl. reflexivity.
 apply VSet.
 apply PBool.
-(* apply eval_imp with (e₁ := ENot (EVar "x")) (e₂ := EBool true) (* (b₁ := ?? true és false is lehet...) *) (b₂ := true). *)
-Admitted.
+simpl.
+apply eval_imp with (e₁ := ENot (EVar "x")) (e₂ := EBool true) (b₁ := true) (b₂ := true).
+apply eval_not with (b := false).
+eapply eval_var.
+simpl; reflexivity.
+simpl; reflexivity.
+apply eval_bool.
+Qed.
 
 (* two equivalent sets *)
 Lemma set_sub_test_without_var_use : forall Γ Γv Φ ι, subtype Γ Γv Φ ι (TSet "x" BBool (ENot (EBool false))) (TSet "x" BBool (EBool true)).
 Proof.
 intros.
-apply SSet.
+apply SSet with (c := true).
 apply VSet.
 apply PNot.
 apply PBool.
 apply VSet.
 apply PBool.
+simpl.
 apply eval_imp with (e₁ := ENot (EBool false)) (e₂ := EBool true) (b₁ := true) (b₂ := true).
 apply eval_not with (e := EBool false) (b := false).
 apply eval_bool.
@@ -430,7 +437,7 @@ Qed.
 Lemma set_sub_test_without_var_use2 : forall Γ Γv Φ ι, subtype Γ Γv Φ ι (TSet "x" BBool (ENot (EBool true))) (TSet "x" BBool (EBool true)).
 Proof.
 intros.
-apply SSet.
+apply SSet with (c := true).
 apply VSet.
 apply PNot.
 apply PBool.
@@ -442,7 +449,23 @@ apply eval_bool.
 apply eval_bool.
 Qed.
 
-
+Lemma base_sub_set_test : forall Γ Γv Φ ι, subtype Γ Γv Φ ι (TBase BBool) (TSet "x" BBool (EOr (EBool true) (EVar "x"))).
+Proof.
+intros.
+eapply SBaseSet.
+apply VSet.
+apply POr.
+apply PBool.
+apply PVar.
+simpl; reflexivity.
+simpl; reflexivity.
+simpl.
+apply eval_or with (b₁ := true) (b₂ := false).
+apply eval_bool.
+eapply eval_var.
+simpl; reflexivity.
+simpl; reflexivity.
+Qed.
 
 
 
