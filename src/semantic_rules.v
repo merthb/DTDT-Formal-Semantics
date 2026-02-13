@@ -1,4 +1,5 @@
 Require Import DTDT.syntax.
+Require Import DTDT.big_step_eval.
 Import ListNotations.
 From stdpp Require Export base.
 From stdpp Require Export strings.
@@ -89,16 +90,16 @@ Inductive has_type_pure
       has_type_pure Γ Φ (EVar x) τb
   | PNat :
     forall n,
-    has_type_pure Γ Φ (ENat n) (TBase BNat)
+      has_type_pure Γ Φ (ENat n) (TBase BNat)
   | PBool :
     forall b,
-    has_type_pure Γ Φ (EBool b) (TBase BBool)
+      has_type_pure Γ Φ (EBool b) (TBase BBool)
   | PString :
     forall s,
-    has_type_pure Γ Φ (EString s) (TBase BString)
+      has_type_pure Γ Φ (EString s) (TBase BString)
   | PUnit :
     forall u,
-    has_type_pure Γ Φ (EUnit u) (TBase BUnit)
+      has_type_pure Γ Φ (EUnit u) (TBase BUnit)
   | PConst :
     forall c τ,
       Φ[ c ] Φ = Some τ ->
@@ -112,28 +113,28 @@ Inductive has_type_pure
       has_type_pure Γ Φ (EApp e₁ e₂) τ₂
   | PNot :
     forall b,
-    has_type_pure Γ Φ b (TBase BBool) ->
-    has_type_pure Γ Φ (ENot b) (TBase BBool)
+      has_type_pure Γ Φ b (TBase BBool) ->
+      has_type_pure Γ Φ (ENot b) (TBase BBool)
   | PImp :
     forall b₁ b₂,
-    has_type_pure Γ Φ b₁ (TBase BBool) ->
-    has_type_pure Γ Φ b₂ (TBase BBool) ->
-    has_type_pure Γ Φ (EImp b₁ b₂) (TBase BBool)
+      has_type_pure Γ Φ b₁ (TBase BBool) ->
+      has_type_pure Γ Φ b₂ (TBase BBool) ->
+      has_type_pure Γ Φ (EImp b₁ b₂) (TBase BBool)
   | PAnd :
     forall b₁ b₂,
-    has_type_pure Γ Φ b₁ (TBase BBool) ->
-    has_type_pure Γ Φ b₂ (TBase BBool) ->
-    has_type_pure Γ Φ (EAnd b₁ b₂) (TBase BBool)
+      has_type_pure Γ Φ b₁ (TBase BBool) ->
+      has_type_pure Γ Φ b₂ (TBase BBool) ->
+      has_type_pure Γ Φ (EAnd b₁ b₂) (TBase BBool)
   | POr :
     forall b₁ b₂,
-    has_type_pure Γ Φ b₁ (TBase BBool) ->
-    has_type_pure Γ Φ b₂ (TBase BBool) ->
-    has_type_pure Γ Φ (EOr b₁ b₂) (TBase BBool)
+      has_type_pure Γ Φ b₁ (TBase BBool) ->
+      has_type_pure Γ Φ b₂ (TBase BBool) ->
+      has_type_pure Γ Φ (EOr b₁ b₂) (TBase BBool)
   | PPlus :
     forall n₁ n₂,
-    has_type_pure Γ Φ n₁ (TBase BNat) ->
-    has_type_pure Γ Φ n₂ (TBase BNat) ->
-    has_type_pure Γ Φ (EPlus n₁ n₂) (TBase BNat).
+      has_type_pure Γ Φ n₁ (TBase BNat) ->
+      has_type_pure Γ Φ n₂ (TBase BNat) ->
+      has_type_pure Γ Φ (EPlus n₁ n₂) (TBase BNat).
 
 Lemma pure_plus_app_nat :
   has_type_pure [( "n" , TBase BNat)] [( "+" , TArr (TBase BNat) (TArr (TBase BNat) (TBase BNat)))] (EApp (EConst "+"%string) (ENat 1)) (TArr (TBase BNat) (TBase BNat)).
@@ -191,162 +192,6 @@ Inductive ty_valid
     forall τ₁,
       ty_valid Γ Φ τ₁ ->
       ty_valid Γ Φ (TRef τ₁).
-
-(* --- Evaluation ---------------------------------------------------------------------- *)
-
-Inductive value : i_expr -> Prop :=
-| ValString : forall s, value (EString s)
-| ValBool   : forall b, value (EBool b)
-| ValNat    : forall n, value (ENat n)
-| ValUnit   : value (EUnit tt)
-| ValPair   : forall v1 v2, value v1 -> value v2 -> value (EPair v1 v2)
-| ValFix    : forall f x τ1 τ2 e, value (EFix f x τ1 τ2 e).
-
-Inductive eval
-  (Γ : var_context)
-  (Γv : varval_context)
-  (Φ : const_context)
-  (ι : fun_imp_list) :
-  i_expr -> i_expr -> Prop :=
-  | eval_bool :
-    forall b,
-      eval Γ Γv Φ ι (EBool b) (EBool b)
-  | eval_nat :
-    forall n,
-      eval Γ Γv Φ ι (ENat n) (ENat n)
-  | eval_string :
-    forall s,
-      eval Γ Γv Φ ι (EString s) (EString s)
-  | eval_unit :
-    forall u,
-      eval Γ Γv Φ ι (EUnit u) (EUnit u)
-  | eval_var :
-    forall v τ e,
-      Γ[ v ] Γ = Some τ ->
-      Γv[ v ] Γv = Some e -> 
-      eval Γ Γv Φ ι (EVar v) e
-  | eval_const :
-    forall c τ e,
-      Φ[ c ] Φ = Some τ ->
-      ι[ c ] ι = Some e -> 
-      eval Γ Γv Φ ι (EConst c) e
-  | eval_fix :
-    forall f x τ₁ τ₂ e,
-      eval Γ Γv Φ ι (EFix f x τ₁ τ₂ e) (EFix f x τ₁ τ₂ e)
-  | eval_app :
-    forall e₁ e₂ f x τ₁ τ₂ body v₁ v₂,
-      eval Γ Γv Φ ι e₁ (EFix f x τ₁ τ₂ body) ->
-      eval Γ Γv Φ ι e₂ v₂ ->
-      value v₂ ->
-      eval ((x , τ₁) :: Γ) ((x , v₂) :: Γv) ((f , TArr τ₁ τ₂) :: Φ) ((f , EFix f x τ₁ τ₂ body) :: ι)
-        body v₁ ->
-      eval Γ Γv Φ ι (EApp e₁ e₂) v₁
-  | eval_plus :
-    forall e₁ e₂ n₁ n₂,
-      eval Γ Γv Φ ι e₁ (ENat n₁) ->
-      eval Γ Γv Φ ι e₂ (ENat n₂) ->
-      eval Γ Γv Φ ι (EPlus e₁ e₂) (ENat (n₁ + n₂))
-  | eval_pair :
-    forall e₁ e₂,
-      eval Γ Γv Φ ι (EPair e₁ e₂) (EPair e₁ e₂)
-  | eval_fst :
-    forall e₁ e₂ v,
-      eval Γ Γv Φ ι v (EPair e₁ e₂) ->
-      eval Γ Γv Φ ι (EFst v) e₁
-  | eval_snd :
-    forall e₁ e₂ v,
-      eval Γ Γv Φ ι v (EPair e₁ e₂) ->
-      eval Γ Γv Φ ι (ESnd v) e₂
-  | eval_if_true :
-    forall e₁ e₂ e₃,
-      eval Γ Γv Φ ι e₁ (EBool true) ->
-      eval Γ Γv Φ ι (EIf e₁ e₂ e₃) e₂
-  | eval_if_false :
-    forall e₁ e₂ e₃,
-      eval Γ Γv Φ ι e₁ (EBool false) ->
-      eval Γ Γv Φ ι (EIf e₁ e₂ e₃) e₃
-  | eval_not :
-    forall e b,
-      eval Γ Γv Φ ι e (EBool b) ->
-      eval Γ Γv Φ ι (ENot e) (EBool (negb b))
-  | eval_and :
-    forall e₁ e₂ b₁ b₂,
-      eval Γ Γv Φ ι e₁ (EBool b₁) ->
-      eval Γ Γv Φ ι e₂ (EBool b₂) ->
-      eval Γ Γv Φ ι (EAnd e₁ e₂) (EBool (b₁ && b₂))
-  | eval_or :
-    forall e₁ e₂ b₁ b₂,
-      eval Γ Γv Φ ι e₁ (EBool b₁) ->
-      eval Γ Γv Φ ι e₂ (EBool b₂) ->
-      eval Γ Γv Φ ι (EOr e₁ e₂) (EBool (b₁ || b₂))
-  | eval_imp :
-      forall e₁ e₂ b₁ b₂,
-        eval Γ Γv Φ ι e₁ (EBool b₁) ->
-        eval Γ Γv Φ ι e₂ (EBool b₂) ->
-        eval Γ Γv Φ ι (EImp e₁ e₂) (EBool (negb b₁ || b₂))
-  | eval_eq_true :
-    forall e₁ e₂ v₁ v₂,
-      eval Γ Γv Φ ι e₁ v₁ ->
-      eval Γ Γv Φ ι e₂ v₂ ->
-      v₁ = v₂ -> 
-      eval Γ Γv Φ ι (EEq e₁ e₂) (EBool true)
-  | eval_eq_false :
-    forall e₁ e₂ v₁ v₂,
-      eval Γ Γv Φ ι e₁ v₁ ->
-      eval Γ Γv Φ ι e₂ v₂ ->
-      v₁ <> v₂ -> 
-      eval Γ Γv Φ ι (EEq e₁ e₂) (EBool false)
-  .
-
-Lemma eval_app_test : forall Γ Γv Φ ι, eval Γ Γv Φ ι (EApp (EFix "f" "x" (TProd (TBase BNat) (TBase BBool)) (TBase BBool) (ESnd (EVar "x"))) (EPair (ENat 42) (EBool false))) (EBool false).
-Proof.
-intros.
-eapply eval_app.
-apply eval_fix.
-apply eval_pair.
-apply ValPair.
-apply ValNat.
-apply ValBool.
-eapply eval_snd.
-eapply eval_var.
-simpl. reflexivity.
-simpl. reflexivity.
-Qed.
-
-Lemma eval_eq_test : forall Γ Γv Φ ι, eval (("x" , TBase BNat) :: Γ) (("x" , ENat 2) :: Γv) Φ ι (EEq (ENat 2) (EVar "x")) (EBool true).
-Proof.
-intros.
-eapply eval_eq_true.
-apply eval_nat.
-eapply eval_var.
-simpl. reflexivity.
-simpl. reflexivity.
-reflexivity.
-Qed.
-
-Lemma eval_bool_test : forall Γ Γv Φ ι, eval Γ Γv Φ ι (EEq (EImp (ENot (EBool false)) (EEq (EPair (ENat 2) (EBool true)) (EString "hehe"))) (EAnd (EOr (EBool true) (EBool false)) (EIf (EEq (EUnit ()) (EUnit ())) (EBool false) (EBool true)))) (EBool true).
-Proof.
-intros.
-eapply eval_eq_true.
-apply eval_imp.
-apply eval_not.
-apply eval_bool.
-eapply eval_eq_false.
-apply eval_pair.
-apply eval_string.
-discriminate.
-apply eval_and.
-apply eval_or.
-apply eval_bool.
-apply eval_bool.
-apply eval_if_true.
-eapply eval_eq_true.
-apply eval_unit.
-apply eval_unit.
-reflexivity.
-simpl.
-reflexivity.
-Qed.
 
 (* --- Subtyping ---------------------------------------------------------------------- *)
 
@@ -467,7 +312,70 @@ simpl; reflexivity.
 simpl; reflexivity.
 Qed.
 
+(* --- Type rules for the internal language ------------------------------------------- *)
 
-
+Inductive has_type
+  ( Γ : var_context)
+  (Γv : varval_context)
+  (Φ : const_context)
+  (ι : fun_imp_list)
+  : i_expr -> i_ty -> Prop :=
+  | TConst :
+    forall c τ,
+      Φ[ c ] Φ = Some τ ->
+      has_type Γ Γv Φ ι (EConst c) τ
+  | TVar :
+    forall v τ,
+      Γ[ v ] Γ = Some τ ->
+      has_type Γ Γv Φ ι (EVar v) τ
+  | TFail :
+    forall τ,
+      ty_valid Γ Φ τ ->
+      has_type Γ Γv Φ ι EFail τ
+  | TFun :
+    forall f x τ₁ τ₂ e,
+      ty_valid Γ Φ (TArrDep x τ₁ τ₂) ->
+      has_type Γ Γv ((f , (TArrDep x τ₁ τ₂)) :: Φ) ι e τ₂ ->
+      has_type Γ Γv Φ ι (EFix f x τ₁ τ₂ e) (TArrDep x τ₁ τ₂)
+  | TAppPure :
+    forall e₁ e₂ x τ₁ τ₂,
+      has_type Γ Γv Φ ι e₂ τ₁ ->
+      (forall τ₃, has_type_pure Γ Φ e₂ τ₃) ->
+      has_type Γ Γv Φ ι e₁ (TArrDep x τ₁ τ₂) ->
+      has_type Γ Γv Φ ι (EApp e₁ e₂) (τ₂(* TODO [e₂/x]τ₂ kellene*))
+  | TAppImPure :
+    forall e₁ e₂ τ₁ τ₂,
+      has_type Γ Γv Φ ι e₂ τ₁ ->
+      has_type Γ Γv Φ ι e₁ (TArr τ₁ τ₂) ->
+      has_type Γ Γv Φ ι (EApp e₁ e₂) τ₂
+  | TPair :
+    forall e₁ e₂ τ₁ τ₂,
+      has_type Γ Γv Φ ι e₁ τ₁ ->
+      has_type Γ Γv Φ ι e₂ τ₂ ->
+      has_type Γ Γv Φ ι (EPair e₁ e₂) (TProd τ₁ τ₂)
+  | TFst :
+    forall e τ₁ τ₂,
+      has_type Γ Γv Φ ι e (TProd τ₁ τ₂) ->
+      has_type Γ Γv Φ ι (EFst e) τ₁
+  | TSnd :
+    forall e τ₁ τ₂,
+      has_type Γ Γv Φ ι e (TProd τ₁ τ₂) ->
+      has_type Γ Γv Φ ι (ESnd e) τ₂
+  | TIf :
+    forall e e₁ e₂ τ u,
+      has_type_pure Γ Φ e (TBase BBool) ->
+      has_type ((u , TBase BBool) :: Γ) ((u , e) :: Γv) Φ ι e₁ τ ->
+      has_type ((u , TBase BBool) :: Γ) ((u , ENot e) :: Γv) Φ ι e₂ τ ->
+      has_type Γ Γv Φ ι (EIf e e₁ e₂) τ
+  | TSelf :
+    forall e τ,
+      has_type Γ Γv Φ ι e τ ->
+      (forall τ₁, has_type_pure Γ Φ e τ₁) ->
+      has_type Γ Γv Φ ι e (self τ e)
+  | TSub :
+    forall e τ τ',
+      has_type Γ Γv Φ ι e τ' ->
+      subtype Γ Γv Φ ι τ' τ ->
+      has_type Γ Γv Φ ι e τ.
 
 

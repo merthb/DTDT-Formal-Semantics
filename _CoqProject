@@ -1,4 +1,6 @@
 -Q src DTDT
 
 src/syntax.v
+src/big_step_eval.v
 src/semantic_rules.v
+src/type_directed_translation.v
