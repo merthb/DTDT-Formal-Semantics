@@ -312,6 +312,51 @@ simpl; reflexivity.
 simpl; reflexivity.
 Qed.
 
+(* ------------------------------------------------------------------------- *)
+(* Substitution of an internal expression for a variable inside i_expr/i_ty  *)
+(* ------------------------------------------------------------------------- *)
+
+Fixpoint expr_subst (x : string) (s : i_expr) (e : i_expr) : i_expr :=
+  match e with
+  | EVar y => if String.eqb x y then s else EVar y
+  | EConst c => EConst c
+  | EString v => EString v
+  | EBool b => EBool b
+  | ENat n => ENat n
+  | EUnit u => EUnit u
+  | EFix f y τ1 τ2 body =>
+    if String.eqb f x || String.eqb y x then EFix f y τ1 τ2 body
+    else EFix f y τ1 τ2 (expr_subst x s body)
+  | EApp e1 e2 => EApp (expr_subst x s e1) (expr_subst x s e2)
+  | EPlus e1 e2 => EPlus (expr_subst x s e1) (expr_subst x s e2)
+  | EPair e1 e2 => EPair (expr_subst x s e1) (expr_subst x s e2)
+  | EFst e1 => EFst (expr_subst x s e1)
+  | ESnd e1 => ESnd (expr_subst x s e1)
+  | EIf e1 e2 e3 => EIf (expr_subst x s e1) (expr_subst x s e2) (expr_subst x s e3)
+  | ENot e1 => ENot (expr_subst x s e1)
+  | EAnd e1 e2 => EAnd (expr_subst x s e1) (expr_subst x s e2)
+  | EOr e1 e2 => EOr (expr_subst x s e1) (expr_subst x s e2)
+  | EImp e1 e2 => EImp (expr_subst x s e1) (expr_subst x s e2)
+  | EEq e1 e2 => EEq (expr_subst x s e1) (expr_subst x s e2)
+  | ENewRef τ e1 => ENewRef τ (expr_subst x s e1)
+  | EGet e1 => EGet (expr_subst x s e1)
+  | ESet e1 e2 => ESet (expr_subst x s e1) (expr_subst x s e2)
+  | EFail => EFail
+  end.
+
+Fixpoint ty_subst (x : string) (s : i_expr) (τ : i_ty) : i_ty :=
+  match τ with
+  | TBase b => TBase b
+  | TSet y b pred => if String.eqb x y then TSet y b pred else TSet y b (expr_subst x s pred)
+  | TArr t1 t2 => TArr (ty_subst x s t1) (ty_subst x s t2)
+  | TArrDep y t1 t2 =>
+    if String.eqb x y then TArrDep y (ty_subst x s t1) t2
+    else TArrDep y (ty_subst x s t1) (ty_subst x s t2)
+  | TProd t1 t2 => TProd (ty_subst x s t1) (ty_subst x s t2)
+  | TRef t => TRef (ty_subst x s t)
+  end.
+
+
 (* --- Type rules for the internal language ------------------------------------------- *)
 
 Inductive has_type
@@ -342,7 +387,8 @@ Inductive has_type
       has_type Γ Γv Φ ι e₂ τ₁ ->
       (forall τ₃, has_type_pure Γ Φ e₂ τ₃) ->
       has_type Γ Γv Φ ι e₁ (TArrDep x τ₁ τ₂) ->
-      has_type Γ Γv Φ ι (EApp e₁ e₂) (τ₂(* TODO [e₂/x]τ₂ kellene*))
+      has_type Γ Γv Φ ι (expr_subst x e₂ e₁) τ₂ ->
+      has_type Γ Γv Φ ι (EApp e₁ e₂) τ₂
   | TAppImPure :
     forall e₁ e₂ τ₁ τ₂,
       has_type Γ Γv Φ ι e₂ τ₁ ->

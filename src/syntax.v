@@ -151,7 +151,8 @@ with expr : Type :=
 | ExGet    : expr -> expr               (* !e *)
 | ExSet    : expr -> expr -> expr       (* e := e *)
 | ExDeRef  : expr -> expr
-(* TODO !d e, e :=d e *)
+| ExGetDep : expr -> expr              (* !d e *)
+| ExSetDep : expr -> expr -> expr      (* e1 :=d e2 *)
 
 | EAssert : expr -> ty -> expr
 | ESimple : expr -> expr
@@ -160,3 +161,45 @@ with expr : Type :=
 
 Scheme expr_ind_mut := Induction for expr Sort Prop
 with ty_ind_mut := Induction for ty Sort Prop.
+
+(* Γ (\Gamma) - the context for variables *)
+Definition var_context_surf := list (string * ty).
+
+Fixpoint var_ctx_lookup_surf (Γ : var_context_surf) (x : string) : option ty :=
+  match Γ with
+  | [] => None
+  | (y, t) :: ys => if String.eqb x y then Some t else var_ctx_lookup_surf ys x
+  end.
+Notation "Γs[ x ] c" := (var_ctx_lookup_surf c x) (at level 1).
+
+(* Γ (\Gamma) - the context for variable values *)
+Definition varval_context_surf := list (string * expr).
+
+Fixpoint varval_ctx_lookup_surf (Γ : varval_context_surf) (x : string) : option expr :=
+  match Γ with
+  | [] => None
+  | (y, e) :: ys => if String.eqb x y then Some e else varval_ctx_lookup_surf ys x
+  end.
+Notation "Γvs[ x ] c" := (varval_ctx_lookup_surf c x) (at level 1).
+
+
+(* Φ (\F) - the context for constants *)
+Definition const_context_surf := list (string * ty).
+
+Fixpoint const_ctx_lookup_surf (F : const_context_surf) (x : string) : option ty :=
+  match F with
+  | [] => None
+  | (y, t) :: ys => if String.eqb x y then Some t else const_ctx_lookup_surf ys x
+  end.
+Notation "Φs[ x ] c" := (const_ctx_lookup_surf c x) (at level 10).
+
+(* ι (\i) - the context for function implementations *)
+Definition fun_imp_list_surf := list (string * expr).
+
+Fixpoint fun_imp_lookup_surf (f : fun_imp_list_surf) (x : string) : option expr :=
+  match f with
+  | [] => None
+  | (y, e) :: ys => if String.eqb x y then Some e else fun_imp_lookup_surf ys x
+  end.
+(* Notation "ιs[ x ] c" := (fun_imp_lookup_surf c x) (at level 10).
+ *)
