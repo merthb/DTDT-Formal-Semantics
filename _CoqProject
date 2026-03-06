@@ -1,6 +1,8 @@
 -Q src DTDT
 
 src/syntax.v
-src/big_step_eval.v
-src/semantic_rules.v
+src/big_step_eval_inter.v
+src/semantic_rules_inter.v
+src/semantic_lemmas_inter.v
+src/semantic_rules_surf.v
 src/type_directed_translation.v
