@@ -1,5 +1,5 @@
 Require Import DTDT.syntax.
-Require Import DTDT.big_step_eval_inter.
+Require Import DTDT.machine_inter.
 From stdpp Require Export base.
 From stdpp Require Export strings.
 From stdpp Require Import stringmap.
@@ -207,6 +207,10 @@ Inductive ty_valid
 
 (* --- Subtyping ---------------------------------------------------------------------- *)
 
+Definition entails (Γ : ctx) (e : i_expr) : Prop :=
+  eval (Γ, e) (Γ, (EBool true)).
+Notation "Γ ⊨ e" := (entails Γ e) (at level 80).
+
 (* Should this be on surface level? In paper there's a rule for dereferation too *)
 Inductive subtype 
   (Γ : ctx) :
@@ -215,19 +219,19 @@ Inductive subtype
     forall b,
       subtype Γ (TBase b) (TBase b)
   | SSet :
-    forall var τb e₁ e₂,
+    forall var τb e₁ e₂ (c : (base_to_set τb)),
       ty_valid Γ (TSet var τb e₁) ->
       ty_valid Γ (TSet var τb e₂) ->
-      ∀ (c : (base_to_set τb)), eval (ctx_add_var Γ var (TBase τb) (make_expr τb c)) (EImp e₁ e₂) (EBool true) ->
+      (ctx_add_var Γ var (TBase τb) (make_expr τb c)) ⊨ (EImp e₁ e₂) ->
       subtype Γ (TSet var τb e₁) (TSet var τb e₂)
   | SSetBase :
     forall var τb e,
       ty_valid Γ (TSet var τb e) ->
       subtype Γ (TSet var τb e) (TBase τb)
   | SBaseSet :
-    forall var τb e,
+    forall var τb e (c : (base_to_set τb)),
       ty_valid Γ (TSet var τb e) ->
-      ∀ (c : (base_to_set τb)), eval (ctx_add_var Γ var (TBase τb) (make_expr τb c)) e (EBool true) ->
+      (ctx_add_var Γ var (TBase τb) (make_expr τb c)) ⊨ e ->
       subtype Γ (TBase τb) (TSet var τb e)
   | SFun :
     forall τ₁ τ₁' τ₂ τ₂',
@@ -252,8 +256,8 @@ Inductive subtype
 
 Lemma set_sub_test : forall Γ, subtype Γ (TSet "x" BBool (ENot (EVar "x"))) (TSet "x" BBool (EBool true)).
 Proof.
-intros.
-eapply SSet.
+intro Γ.
+eapply SSet with (c := true).
 apply VSet with (v := EBool true).
 apply PNot.
 apply PVar with (e := EBool true).
@@ -263,12 +267,16 @@ reflexivity.
 apply VSet with (v := ENat 1).
 apply PBool.
 simpl.
-apply eval_imp with (e₁ := ENot (EVar "x")) (e₂ := EBool true) (b₁ := true) (b₂ := true).
-apply eval_not with (b := false).
-eapply eval_var.
-unfold var_ctx_lookup.
-apply var_lookup_add.
-apply eval_bool.
+econstructor.
+apply StepCtx with (E := ECImpL ECHole (EBool true)).
+apply StepCtx with (E := ECNot ECHole).
+solve_var.
+econstructor. simpl.
+apply StepCtx with (E := ECImpL ECHole (EBool true)).
+apply StepNot. simpl.
+econstructor.
+apply StepImp. rewrite implb_true_r.
+apply steps_refl.
 Qed.
 
 (* two equivalent sets *)
@@ -282,10 +290,12 @@ apply PBool.
 apply VSet with (v := ENat 0).
 apply PBool.
 simpl.
-apply eval_imp with (e₁ := ENot (EBool false)) (e₂ := EBool true) (b₁ := true) (b₂ := true).
-apply eval_not with (e := EBool false) (b := false).
-apply eval_bool.
-apply eval_bool.
+econstructor.
+apply StepCtx with (E := ECImpL ECHole (EBool true)).
+apply StepNot. simpl.
+econstructor.
+apply StepImp.
+simpl. apply steps_refl.
 Qed.
 
 (* actual subsets *)
@@ -298,16 +308,19 @@ apply PNot.
 apply PBool.
 apply VSet with (v := EBool false).
 apply PBool.
-apply eval_imp with (e₁ := ENot (EBool true)) (e₂ := EBool true) (b₁ := false) (b₂ := true).
-apply eval_not with (e := EBool true) (b := true).
-apply eval_bool.
-apply eval_bool.
+simpl.
+econstructor.
+apply StepCtx with (E := ECImpL ECHole (EBool true)).
+apply StepNot. simpl.
+econstructor.
+apply StepImp.
+simpl. apply steps_refl.
 Qed.
 
 Lemma base_sub_set_test : forall Γ, subtype Γ (TBase BBool) (TSet "x" BBool (EOr (EBool true) (EVar "x"))).
 Proof.
 intros.
-eapply SBaseSet.
+eapply SBaseSet with (c := true).
 apply VSet with (v := ENat 2).
 apply POr.
 apply PBool.
@@ -315,57 +328,14 @@ apply PVar with (e := ENat 2).
 unfold var_ctx_lookup.
 apply var_lookup_add.
 reflexivity.
-apply eval_or with (b₁ := true) (b₂ := false).
-apply eval_bool.
-eapply eval_var.
-unfold var_ctx_lookup.
-apply var_lookup_add.
+simpl.
+econstructor.
+apply StepCtx with (E := ECOrR (EBool true) ECHole).
+solve_var.
+econstructor. simpl.
+apply StepOr. simpl.
+apply steps_refl.
 Qed.
-
-(* ------------------------------------------------------------------------- *)
-(* Substitution of an internal expression for a variable inside i_expr/i_ty  *)
-(* ------------------------------------------------------------------------- *)
-
-Fixpoint expr_subst (x : string) (s : i_expr) (e : i_expr) : i_expr :=
-  match e with
-  | EVar y => if String.eqb x y then s else EVar y
-  | EConst c => EConst c
-  | EString v => EString v
-  | EBool b => EBool b
-  | ENat n => ENat n
-  | EUnit u => EUnit u
-  | EFix f y τ1 τ2 body =>
-    if String.eqb f x || String.eqb y x then EFix f y τ1 τ2 body
-    else EFix f y τ1 τ2 (expr_subst x s body)
-  | EApp e1 e2 => EApp (expr_subst x s e1) (expr_subst x s e2)
-  | EPlus e1 e2 => EPlus (expr_subst x s e1) (expr_subst x s e2)
-  | EPair e1 e2 => EPair (expr_subst x s e1) (expr_subst x s e2)
-  | EFst e1 => EFst (expr_subst x s e1)
-  | ESnd e1 => ESnd (expr_subst x s e1)
-  | EIf e1 e2 e3 => EIf (expr_subst x s e1) (expr_subst x s e2) (expr_subst x s e3)
-  | ENot e1 => ENot (expr_subst x s e1)
-  | EAnd e1 e2 => EAnd (expr_subst x s e1) (expr_subst x s e2)
-  | EOr e1 e2 => EOr (expr_subst x s e1) (expr_subst x s e2)
-  | EImp e1 e2 => EImp (expr_subst x s e1) (expr_subst x s e2)
-  | EEq e1 e2 => EEq (expr_subst x s e1) (expr_subst x s e2)
-  | ENewRef τ e1 => ENewRef τ (expr_subst x s e1)
-  | EGet e1 => EGet (expr_subst x s e1)
-  | ESet e1 e2 => ESet (expr_subst x s e1) (expr_subst x s e2)
-  | EFail => EFail
-  end.
-
-Fixpoint ty_subst (x : string) (s : i_expr) (τ : i_ty) : i_ty :=
-  match τ with
-  | TBase b => TBase b
-  | TSet y b pred => if String.eqb x y then TSet y b pred else TSet y b (expr_subst x s pred)
-  | TArr t1 t2 => TArr (ty_subst x s t1) (ty_subst x s t2)
-  | TArrDep y t1 t2 =>
-    if String.eqb x y then TArrDep y (ty_subst x s t1) t2
-    else TArrDep y (ty_subst x s t1) (ty_subst x s t2)
-  | TProd t1 t2 => TProd (ty_subst x s t1) (ty_subst x s t2)
-  | TRef t => TRef (ty_subst x s t)
-  end.
-
 
 (* --- Type rules for the internal language ------------------------------------------- *)
 

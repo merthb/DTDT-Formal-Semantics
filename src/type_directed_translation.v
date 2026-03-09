@@ -1,5 +1,5 @@
 Require Import DTDT.syntax.
-Require Import DTDT.big_step_eval_inter.
+Require Import DTDT.machine_inter.
 Require Import DTDT.semantic_rules_inter.
 Require Import DTDT.semantic_rules_surf.
 

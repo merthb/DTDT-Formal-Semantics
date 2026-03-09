@@ -1,7 +1,8 @@
 Require Export Coq.Strings.String.
 Require Export Coq.Init.Nat.
 Require Export Coq.Bool.Bool.
-Require Export DTDT.string_map.
+From stdpp Require Export base.
+From stdpp Require Export strings.
 From stdpp Require Export gmap.
 
 (* --- Abstract base types ------------------------------------------------ *)

@@ -1,5 +1,5 @@
 Require Import DTDT.syntax.
-Require Import DTDT.big_step_eval_inter.
+Require Import DTDT.machine_inter.
 Require Import DTDT.semantic_rules_inter.
 
 Definition add_ctx (Γ₁ Γ₂ : ctx) : ctx := ((Γ₂ ▷vars) ∪ (Γ₁ ▷vars), (Γ₂ ▷consts) ∪ (Γ₁ ▷consts)).
@@ -58,10 +58,8 @@ Lemma lookup_lemma_var_add : forall Γ₁ Γ₂ Γ₃ c τ e v type exp,
 Proof.
   intros.
   unfold ctx_add_var, add_ctx, var_ctx_lookup in *. simpl in *.
-  Search union.
   pose proof (insert_union_singleton_l ((Γ₁.1) ∪ ((Γ₂.1) ∪ (Γ₃.1)))).
   rewrite (H0 v (type, exp)) at 1.
-  Print lookup_singleton.
   destruct (({[ v := (type,exp) ]} : gmap string (i_ty * i_expr)) !! c) eqn:Hlookup.
   - apply (lookup_union_Some_l ({[ v := (type,exp) ]} : gmap string (i_ty * i_expr)) _ c _).
     rewrite <- H.
@@ -124,50 +122,133 @@ Proof.
   apply PImp. apply IHe1. assumption. apply IHe2. assumption.
 Qed.
 
+(* Lemma add_var_add_ctx_comm :
+  forall Γ₁ Γ₂ v τ e,
+    Γ₁.1 !! v = None ->
+    ctx_add_var (add_ctx Γ₂ Γ₁) v τ e =
+    add_ctx (ctx_add_var Γ₂ v τ e) Γ₁.
+Proof.
+  intros.
+  unfold ctx_add_var, add_ctx. simpl.
+  rewrite (insert_union_r (Γ₁.1) (Γ₂.1)). reflexivity.
+  assumption.
+Qed.
+
+Lemma add_ctx_ctx_add_var :
+  forall Γ1 Γ2 Γ3 v τ e,
+  ctx_add_var (add_ctx (add_ctx Γ3 Γ2) Γ1) v τ e =
+  add_ctx Γ3 (ctx_add_var (add_ctx Γ2 Γ1) v τ e).
+Proof.
+  intros.
+  unfold ctx_add_var, add_ctx. simpl.
+  Search union.
+  rewrite (insert_union_singleton_l ((Γ1.1) ∪ ((Γ2.1) ∪ (Γ3.1)))).
+  rewrite (insert_union_singleton_l ((Γ1.1) ∪ (Γ2.1))).
+  f_equal.
+  apply map_eq; intros k.
+Admitted. *)
+
 Lemma weakening_ty_valid :
   forall Γ₁ Γ₂ Γ₃ τ,
     ty_valid (add_ctx Γ₂ Γ₁) τ ->
     ty_valid (add_ctx (add_ctx Γ₃ Γ₂) Γ₁) τ.
 Proof.
   intros.
-  revert Γ₁ Γ₂ Γ₃ H.
-  induction τ; intros.
+  remember (add_ctx Γ₂ Γ₁) as Γ.
+  revert Γ₃.
+  induction H; intros.
   apply VBase.
-  eapply VSet.
-  apply (weakening_has_type_pure_add Γ₁ Γ₂ Γ₃ s (TBase b) _ i (TBase BBool)).
-  admit.
-  apply VFun. apply IHτ1. inversion H. assumption. apply IHτ2. inversion H. assumption.
-  eapply VFunDep. apply IHτ1. inversion H. assumption. admit.
-  apply VPair. inversion H. apply IHτ1. assumption. inversion H. apply IHτ2. assumption.
-  apply VRef. inversion H. apply IHτ. assumption.
+  eapply VSet. rewrite HeqΓ in H. apply weakening_has_type_pure_add. exact H.
+  apply VFun. apply IHty_valid1. assumption. apply IHty_valid2. assumption.
+  
+  eapply VFunDep. apply IHty_valid1. assumption.
+  rewrite HeqΓ in *. admit.
+  
+  apply VPair. apply IHty_valid1. assumption. apply IHty_valid2. assumption.
+  apply VRef. apply IHty_valid. assumption.
 Admitted.
 
+Lemma weakening_subtype :
+  forall Γ₁ Γ₂ Γ₃ τ₁ τ₂,
+    subtype (add_ctx Γ₂ Γ₁) τ₁ τ₂ ->
+    subtype (add_ctx (add_ctx Γ₃ Γ₂) Γ₁) τ₁ τ₂.
+Proof.
+  intros.
+  remember (add_ctx Γ₂ Γ₁) as Γ.
+  revert Γ₃.
+  induction H; intros.
+  apply SBase.
+  eapply SSet. apply weakening_ty_valid. rewrite HeqΓ in H. assumption.
+  apply weakening_ty_valid. rewrite HeqΓ in H0. assumption. admit.
+  
+  apply SSetBase. rewrite HeqΓ in H. apply weakening_ty_valid. assumption.
+  
+  eapply SBaseSet. apply weakening_ty_valid. rewrite HeqΓ in H. assumption.
+  admit.
+  
+  apply SFun. apply IHsubtype1. assumption. apply IHsubtype2. assumption.
+  
+  eapply SFunDep. apply IHsubtype1. assumption.
+  admit.
+  
+  apply SPair. apply IHsubtype1. assumption. apply IHsubtype2. assumption.
+  apply SRef. apply IHsubtype1. assumption. apply IHsubtype2. assumption.
+Admitted.
 
 Lemma weakening :
   forall Γ₁ Γ₂ Γ₃ e τ,
     has_type (add_ctx Γ₂ Γ₁) e τ ->
     has_type (add_ctx (add_ctx Γ₃ Γ₂) Γ₁) e τ.
 Proof.
-intros.
-simpl.
-inversion H.
-apply TString.
-apply TNat.
-apply TBool.
-apply TUnit.
-eapply TConst.
-apply lookup_lemma_const. exact H0.
-eapply TVar.
-apply lookup_lemma_var. exact H0.
-apply TFail. apply weakening_ty_valid. assumption.
-eapply TFun. apply weakening_ty_valid. assumption. admit.
-eapply TAppPure. admit. admit. admit. admit.
-eapply TAppImPure. admit. admit.
-apply TPlus. admit. admit. admit.
-eapply TFst. admit.
-eapply TSnd. admit.
-eapply TIf. admit. admit. admit.
-apply TSelf. admit. admit.
-eapply TSub. admit. admit.
+  intros.
+  remember (add_ctx Γ₂ Γ₁) as Γ.
+  induction H.
+  apply TString.
+  apply TNat.
+  apply TBool.
+  apply TUnit.
+  eapply TConst. rewrite HeqΓ in H. apply lookup_lemma_const. exact H.
+  eapply TVar. rewrite HeqΓ in H. apply lookup_lemma_var. exact H.
+  apply TFail. rewrite HeqΓ in H. apply weakening_ty_valid. exact H.
+
+  eapply TFun. rewrite HeqΓ in *. apply weakening_ty_valid. exact H.
+  rewrite HeqΓ in *. admit.
+
+  eapply TAppPure. rewrite HeqΓ in *. apply IHhas_type1. reflexivity. 
+  rewrite HeqΓ in *. intros. apply weakening_has_type_pure. exact (H0 τ₃).
+  rewrite HeqΓ in *. apply IHhas_type2. reflexivity. apply IHhas_type3. assumption.
+
+  eapply TAppImPure. apply IHhas_type1. assumption. apply IHhas_type2. assumption.
+  apply TPlus. apply IHhas_type1. assumption. apply IHhas_type2. assumption.
+  apply TPair. apply IHhas_type1. assumption. apply IHhas_type2. assumption.
+  eapply TFst. apply IHhas_type. assumption.
+  eapply TSnd. apply IHhas_type. assumption.
+
+  eapply TIf. rewrite HeqΓ in H. apply weakening_has_type_pure. assumption.
+  rewrite HeqΓ in *. admit. admit.
+
+  eapply TSelf. apply IHhas_type. assumption.
+  intros. apply weakening_has_type_pure. rewrite HeqΓ in H0. exact (H0 τ₁).
+
+  eapply TSub. apply IHhas_type. assumption.
+  rewrite HeqΓ in H0. apply weakening_subtype. assumption.
 Admitted.
+
+(* ------------------------------------------------------- *)
+(* 
+Lemma weakening_entails :
+  forall Γ₁ Γ₂ Γ₃ e,
+    (add_ctx Γ₂ Γ₁) ⊨ e ->
+    (add_ctx (add_ctx Γ₂ Γ₁) Γ₃) ⊨ e.
+Proof.
+  intros.
+  inversion H.
+  apply steps_refl.
+  econstructor.
+  
+Admitted. *)
+
+
+
+
 
