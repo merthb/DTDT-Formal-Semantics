@@ -1,10 +1,11 @@
 Require Import DTDT.syntax.
 Require Import DTDT.machine_inter.
+Require Import DTDT.entails_inter.
 From stdpp Require Export base.
 From stdpp Require Export strings.
 From stdpp Require Import stringmap.
 
-(* --- Selfification rule ------------------------------------------------------ *)
+(* Auxiliary variable collection for selfification and dependency erasure. *)
 
 Fixpoint exp_vars (term : i_expr) : list string :=
   match term with
@@ -22,29 +23,32 @@ Fixpoint exp_vars (term : i_expr) : list string :=
   | EOr exp1 exp2 => exp_vars exp1 ++ exp_vars exp2
   | EImp exp1 exp2 => exp_vars exp1 ++ exp_vars exp2
   | EEq exp1 exp2 => exp_vars exp1 ++ exp_vars exp2
-  | ENewRef type exp => ty_vars type ++ exp_vars exp
+  | ENewRef τ exp => ty_vars τ ++ exp_vars exp
   | EGet exp => exp_vars exp
   | ESet exp1 exp2 => exp_vars exp1 ++ exp_vars exp2
   | _ => []
   end
-with ty_vars (type : i_ty) : list string :=
-  match type with
+with ty_vars (τ : i_ty) : list string :=
+  match τ with
   | TBase _ => []
   | TSet var _ exp => var :: exp_vars exp
   | TArr ty1 ty2 => ty_vars ty1 ++ ty_vars ty2
   | TArrDep var ty1 ty2 => var :: ty_vars ty1 ++ ty_vars ty2
   | TProd ty1 ty2 => ty_vars ty1 ++ ty_vars ty2
-  | TRef type => ty_vars type
+  | TRef τ => ty_vars τ
   end.
 
+(* Pick a fresh variable name outside the given list. *)
 Definition fresh_string_list (l : list string) : string :=
   fresh_string_of_set ("x"%string) (list_to_set l).
 
-Fixpoint self (type : i_ty) (term : i_expr) : i_ty :=
-  match type with
-  | TBase ty => TSet (fresh_string_list (exp_vars term)) ty (EEq (EVar (fresh_string_list (exp_vars term))) term)
+(* Selfification refines a type with the information that a term inhabits it. *)
+Fixpoint self (τ : i_ty) (term : i_expr) : i_ty :=
+  match τ with
+  | TBase b => TSet (fresh_string_list (exp_vars term)) b (EEq (EVar (fresh_string_list (exp_vars term))) term)
   | TSet var tb expr => TSet var tb (EAnd expr (EEq (EVar var) term))
-  | TArr (TBase ty) ty2 => TArrDep (fresh_string_list (exp_vars term)) (TBase ty) (self ty2 (EApp term (EVar (fresh_string_list (exp_vars term)))))
+  | TArr (TBase b) τ₂ => TArrDep (fresh_string_list (exp_vars term)) (TBase b) (self τ₂ (EApp term (EVar (fresh_string_list (exp_vars term)))))
+  | TRef τ => TRef τ
   | x => x
   end.
 
@@ -52,7 +56,7 @@ Fixpoint self (type : i_ty) (term : i_expr) : i_ty :=
 Compute self (TArr (TBase BNat) (TArr (TBase BNat) (TBase BNat))) (EVar ("+"%string)). *)
 
 
-(* --- Pure term validation ------------------------------------------------------ *)
+(* Pure internal typing for the fragment used inside refinements. *)
 
 (*
 Pure terms are:
@@ -61,22 +65,40 @@ Pure terms are:
 - application of pure terms to pure terms
  *)
 
-Fixpoint is_simple_type (type : i_ty) : bool :=
-  match type with
+(* Simple types are the types admitted for pure constants. *)
+Fixpoint is_simple_type (τ : i_ty) : bool :=
+  match τ with
   | TBase _ => true
   | TArr t1 t2 => is_simple_type t1 && is_simple_type t2
   | TProd t1 t2 => is_simple_type t1 && is_simple_type t2
+  | TRef t => is_simple_type t
   | _ => false
   end.
 
-Definition essential_type_is_base_type (type : i_ty) : bool :=
-  match type with
+(* Erase a refinement to its underlying simple carrier. *)
+Definition essential_type (τ : i_ty) : i_ty :=
+  match τ with
+  | TSet _ b _ => TBase b
+  | _ => τ
+  end.
+
+Definition essential_type_is_base_type (τ : i_ty) : bool :=
+  match τ with
   | TBase _ => true
   | TSet _ _ _ => true
   | _ => false
   end.
 Notation "β[ t ]" := (essential_type_is_base_type t) (at level 10).
 
+Reserved Notation "Γ ⊢pure e : τ" (at level 74, e, τ at next level).
+Reserved Notation "Γ ⊢valid τ" (at level 74, τ at next level).
+Reserved Notation "Γ ⊢ τ₁ ≤ τ₂" (at level 74, τ₁, τ₂ at next level).
+Reserved Notation "Γ ⊢ e : τ" (at level 74, e, τ at next level).
+
+(* Pure typing judgment for internal expressions.
+   Paper form: Γ ⊢pure e : τ.
+   This judgment isolates the fragment admissible inside refinements and semantic
+   premises: base values, simple constants, and applications that remain pure. *)
 Inductive has_type_pure
   ( Γ : ctx)
   : i_expr -> i_ty -> Prop :=
@@ -84,7 +106,7 @@ Inductive has_type_pure
     forall x τb e,
       Γ !!₁ x = Some (τb, e) ->
       β[ τb ] ->
-      has_type_pure Γ (EVar x) τb
+      has_type_pure Γ (EVar x) (essential_type τb)
   | PNat :
     forall n,
       has_type_pure Γ (ENat n) (TBase BNat)
@@ -127,54 +149,26 @@ Inductive has_type_pure
       has_type_pure Γ b₁ (TBase BBool) ->
       has_type_pure Γ b₂ (TBase BBool) ->
       has_type_pure Γ (EOr b₁ b₂) (TBase BBool)
+  | PEq :
+    forall e₁ e₂ τb,
+      has_type_pure Γ e₁ (TBase τb) ->
+      has_type_pure Γ e₂ (TBase τb) ->
+      has_type_pure Γ (EEq e₁ e₂) (TBase BBool)
   | PPlus :
     forall n₁ n₂,
       has_type_pure Γ n₁ (TBase BNat) ->
       has_type_pure Γ n₂ (TBase BNat) ->
       has_type_pure Γ (EPlus n₁ n₂) (TBase BNat).
 
-Lemma const_lookup_add Γ f τ e :
-  (Γ ,,c f ↦ (τ, e)) !!₂ f = Some (τ,e).
-Proof.
-  unfold const_ctx_lookup.
-  unfold ctx_add_const. cbn.
-  apply lookup_insert.
-Qed.
+Notation "Γ ⊢pure e : τ" := (has_type_pure Γ e τ)
+  (at level 74, e, τ at next level).
 
-Lemma var_lookup_add Γ x τ e :
-  (Γ ,,v x ↦ (τ, e)) !!₁ x = Some (τ,e).
-Proof.
-  unfold var_ctx_lookup.
-  unfold ctx_add_var. cbn.
-  apply lookup_insert.
-Qed.
+(* Well-formedness of internal types. *)
 
-Lemma pure_plus_app_nat :
-  has_type_pure ((ctx_add_const empty_ctx "+" (TArr (TBase BNat) (TArr (TBase BNat) (TBase BNat))) (EFix "" "n" (TBase BNat) (TArr (TBase BNat) (TBase BNat)) (EFix "" "m" (TBase BNat) (TBase BNat) (EPlus (EVar "n") (EVar "m"))))) ,,v "n" ↦ (TBase BNat, ENat 1)) (EApp (EConst "+"%string) (ENat 1)) (TArr (TBase BNat) (TBase BNat)).
-Proof.
-  apply PApp with (τ₁ := TBase BNat).
-  reflexivity.
-  eapply PConst.
-  apply const_lookup_add.
-  reflexivity.
-  apply PNat.
-Qed.
-
-Lemma pure_plus_app_var :
-  has_type_pure ((ctx_add_const empty_ctx "+" (TArr (TBase BNat) (TArr (TBase BNat) (TBase BNat))) (EFix "" "n" (TBase BNat) (TArr (TBase BNat) (TBase BNat)) (EFix "" "m" (TBase BNat) (TBase BNat) (EPlus (EVar "n") (EVar "m"))))) ,,v "n" ↦ (TBase BNat, ENat 1)) (EApp (EConst "+"%string) (EVar "n")) (TArr (TBase BNat) (TBase BNat)).
-Proof.
-  apply PApp with (τ₁ := TBase BNat).
-  reflexivity.
-  eapply PConst.
-  apply const_lookup_add.
-  reflexivity.
-  eapply PVar.
-  apply var_lookup_add.
-  reflexivity.
-Qed.
-
-(* --- Well-formed type checking ------------------------------------------------------ *)
-
+(* Type validity judgment for internal types.
+   Paper form: Γ ⊢valid τ.
+   A valid type is well-formed relative to Γ, including the requirement that every
+   refinement predicate is itself well-typed in the pure fragment. *)
 Inductive ty_valid
   (Γ : ctx)
   : i_ty -> Prop :=
@@ -201,17 +195,19 @@ Inductive ty_valid
       ty_valid Γ τ₂ ->
       ty_valid Γ (TProd τ₁ τ₂)
   | VRef :
-    forall τ₁,
-      ty_valid Γ τ₁ ->
-      ty_valid Γ (TRef τ₁).
+    forall τ,
+      ty_valid Γ τ ->
+      ty_valid Γ (TRef τ).
 
-(* --- Subtyping ---------------------------------------------------------------------- *)
+Notation "Γ ⊢valid τ" := (ty_valid Γ τ)
+  (at level 74, τ at next level).
 
-Definition entails (Γ : ctx) (e : i_expr) : Prop :=
-  eval (Γ, e) (Γ, (EBool true)).
-Notation "Γ ⊨ e" := (entails Γ e) (at level 80).
+(* Semantic subtyping for internal types. *)
 
-(* Should this be on surface level? In paper there's a rule for dereferation too *)
+(* Internal subtyping judgment.
+   Paper form: Γ ⊢ τ₁ ≤ τ₂.
+   This relation combines ordinary structural rules with semantic implications for
+   refinement types, and it is the subtyping notion used by typing and coercion. *)
 Inductive subtype 
   (Γ : ctx) :
   i_ty -> i_ty -> Prop :=
@@ -249,96 +245,17 @@ Inductive subtype
       subtype Γ τ₂ τ₂' ->
       subtype Γ (TProd τ₁ τ₂) (TProd τ₁' τ₂')
   | SRef :
-    forall τ τ',
-      subtype Γ τ τ' ->
-      subtype Γ τ' τ ->
-      subtype Γ (TRef τ) (TRef τ').
+    forall t t',
+      subtype Γ t t' ->
+      subtype Γ t' t ->
+      subtype Γ (TRef t) (TRef t').
 
-Lemma set_sub_test : forall Γ, subtype Γ (TSet "x" BBool (ENot (EVar "x"))) (TSet "x" BBool (EBool true)).
-Proof.
-intro Γ.
-eapply SSet with (c := true).
-apply VSet with (v := EBool true).
-apply PNot.
-apply PVar with (e := EBool true).
-unfold var_ctx_lookup.
-apply var_lookup_add.
-reflexivity.
-apply VSet with (v := ENat 1).
-apply PBool.
-simpl.
-econstructor.
-apply StepCtx with (E := ECImpL ECHole (EBool true)).
-apply StepCtx with (E := ECNot ECHole).
-solve_var.
-econstructor. simpl.
-apply StepCtx with (E := ECImpL ECHole (EBool true)).
-apply StepNot. simpl.
-econstructor.
-apply StepImp. rewrite implb_true_r.
-apply steps_refl.
-Qed.
+(* Main typing judgment for internal expressions. *)
 
-(* two equivalent sets *)
-Lemma set_sub_test_without_var_use : forall Γ, subtype Γ (TSet "x" BBool (ENot (EBool false))) (TSet "x" BBool (EBool true)).
-Proof.
-intros.
-apply SSet with (c := true).
-apply VSet with (v := ENat 0).
-apply PNot.
-apply PBool.
-apply VSet with (v := ENat 0).
-apply PBool.
-simpl.
-econstructor.
-apply StepCtx with (E := ECImpL ECHole (EBool true)).
-apply StepNot. simpl.
-econstructor.
-apply StepImp.
-simpl. apply steps_refl.
-Qed.
-
-(* actual subsets *)
-Lemma set_sub_test_without_var_use2 : forall Γ, subtype Γ (TSet "x" BBool (ENot (EBool true))) (TSet "x" BBool (EBool true)).
-Proof.
-intros.
-apply SSet with (c := true).
-apply VSet with (v := EBool false).
-apply PNot.
-apply PBool.
-apply VSet with (v := EBool false).
-apply PBool.
-simpl.
-econstructor.
-apply StepCtx with (E := ECImpL ECHole (EBool true)).
-apply StepNot. simpl.
-econstructor.
-apply StepImp.
-simpl. apply steps_refl.
-Qed.
-
-Lemma base_sub_set_test : forall Γ, subtype Γ (TBase BBool) (TSet "x" BBool (EOr (EBool true) (EVar "x"))).
-Proof.
-intros.
-eapply SBaseSet with (c := true).
-apply VSet with (v := ENat 2).
-apply POr.
-apply PBool.
-apply PVar with (e := ENat 2).
-unfold var_ctx_lookup.
-apply var_lookup_add.
-reflexivity.
-simpl.
-econstructor.
-apply StepCtx with (E := ECOrR (EBool true) ECHole).
-solve_var.
-econstructor. simpl.
-apply StepOr. simpl.
-apply steps_refl.
-Qed.
-
-(* --- Type rules for the internal language ------------------------------------------- *)
-
+(* Internal typing judgment.
+   Paper form: Ψ ; Γ ⊢ e : τ.
+   In the current Coq encoding the single context Γ packages the variable, constant,
+   and store components that are separated notationally in the paper. *)
 Inductive has_type
   ( Γ : ctx)
   : i_expr -> i_ty -> Prop :=
@@ -362,6 +279,15 @@ Inductive has_type
     forall v τ e,
       Γ !!₁ v = Some (τ, e) ->
       has_type Γ (EVar v) τ
+  | TEssentialVar :
+    forall v τ e,
+      Γ !!₁ v = Some (τ, e) ->
+      β[ τ ] ->
+      has_type Γ (EVar v) (essential_type τ)
+  | TLoc :
+    forall l t v,
+      Γ !!₃ l = Some (t, v) ->
+      has_type Γ (EVar l) (TRef t)
   | TFail :
     forall τ,
       ty_valid Γ τ ->
@@ -369,15 +295,14 @@ Inductive has_type
   | TFun :
     forall f x τ₁ τ₂ e exp,
       ty_valid Γ (TArrDep x τ₁ τ₂) ->
-      has_type (ctx_add_const Γ f (TArrDep x τ₁ τ₂) exp) e τ₂ ->
+      has_type ((Γ ,,c f ↦ (TArrDep x τ₁ τ₂, exp)) ,,v x ↦ (τ₁, EVar x)) e τ₂ ->
       has_type Γ (EFix f x τ₁ τ₂ e) (TArrDep x τ₁ τ₂)
   | TAppPure :
     forall e₁ e₂ x τ₁ τ₂,
       has_type Γ e₂ τ₁ ->
       (forall τ₃, has_type_pure Γ e₂ τ₃) ->
       has_type Γ e₁ (TArrDep x τ₁ τ₂) ->
-      has_type Γ (expr_subst x e₂ e₁) τ₂ ->
-      has_type Γ (EApp e₁ e₂) τ₂
+      has_type Γ (EApp e₁ e₂) (ty_subst x e₂ τ₂)
   | TAppImPure :
     forall e₁ e₂ τ₁ τ₂,
       has_type Γ e₂ τ₁ ->
@@ -388,6 +313,44 @@ Inductive has_type
       has_type Γ e₁ (TBase BNat) ->
       has_type Γ e₂ (TBase BNat) ->
       has_type Γ (EPlus e₁ e₂) (TBase BNat)
+  | TNot :
+    forall e,
+      has_type Γ e (TBase BBool) ->
+      has_type Γ (ENot e) (TBase BBool)
+  | TImp :
+    forall e₁ e₂,
+      has_type Γ e₁ (TBase BBool) ->
+      has_type Γ e₂ (TBase BBool) ->
+      has_type Γ (EImp e₁ e₂) (TBase BBool)
+  | TAnd :
+    forall e₁ e₂,
+      has_type Γ e₁ (TBase BBool) ->
+      has_type Γ e₂ (TBase BBool) ->
+      has_type Γ (EAnd e₁ e₂) (TBase BBool)
+  | TOr :
+    forall e₁ e₂,
+      has_type Γ e₁ (TBase BBool) ->
+      has_type Γ e₂ (TBase BBool) ->
+      has_type Γ (EOr e₁ e₂) (TBase BBool)
+  | TEq :
+    forall e₁ e₂ τb,
+      has_type Γ e₁ (TBase τb) ->
+      has_type Γ e₂ (TBase τb) ->
+      has_type Γ (EEq e₁ e₂) (TBase BBool)
+  | TRefI :
+    forall τ e,
+      ty_valid Γ τ ->
+      has_type Γ e τ ->
+      has_type Γ (ENewRef τ e) (TRef τ)
+  | TGet :
+    forall e τ,
+      has_type Γ e (TRef τ) ->
+      has_type Γ (EGet e) τ
+  | TSetI :
+    forall e1 e2 τ,
+      has_type Γ e1 (TRef τ) ->
+      has_type Γ e2 τ ->
+      has_type Γ (ESet e1 e2) (TBase BUnit)
   | TPair :
     forall e₁ e₂ τ₁ τ₂,
       has_type Γ e₁ τ₁ ->
@@ -404,8 +367,8 @@ Inductive has_type
   | TIf :
     forall e e₁ e₂ τ u,
       has_type_pure Γ e (TBase BBool) ->
-      has_type (ctx_add_var Γ u (TBase BBool) e) e₁ τ ->
-      has_type (ctx_add_var Γ u (TBase BBool) (ENot e)) e₂ τ ->
+      has_type (Γ ,,v u ↦ (TBase BBool, e)) e₁ τ ->
+      has_type (Γ ,,v u ↦ (TBase BBool, ENot e)) e₂ τ ->
       has_type Γ (EIf e e₁ e₂) τ
   | TSelf :
     forall e τ,
@@ -418,4 +381,13 @@ Inductive has_type
       subtype Γ τ' τ ->
       has_type Γ e τ.
 
-
+(* Store well-typedness invariant.
+   Auxiliary paper-style reading: every location l in the store of Γ satisfies
+   Γ(l) = (τ, v) only if Γ ⊢valid τ and Γ ⊢ v : τ. This invariant
+   supports the reference fragment of preservation. *)
+Inductive store_well_typed (Γ : ctx) : Prop :=
+  | StoreWellTyped :
+    (forall l t v,
+      Γ !!₃ l = Some (t, v) ->
+      ty_valid Γ t /\ has_type Γ v t) ->
+    store_well_typed Γ.

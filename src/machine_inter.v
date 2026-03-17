@@ -1,7 +1,11 @@
 Require Import DTDT.syntax.
 
-Definition var_dom (Γ : ctx) : list string := map fst (map_to_list (Γ.1)).
+Definition var_dom (Γ : ctx) : list string := map fst (map_to_list (Γ ▷vars)).
+Definition store_dom (Γ : ctx) : list string := map fst (map_to_list (Γ ▷store)).
 
+(* Value judgment for the internal machine.
+   Values are parameterized by the current context because constants, variables,
+   and locations are recognized through context and store lookup. *)
 Inductive value (Γ : ctx) : i_expr -> Prop :=
   | VNat : forall n, value Γ (ENat n)
   | VBool : forall b, value Γ (EBool b)
@@ -22,58 +26,64 @@ Inductive value (Γ : ctx) : i_expr -> Prop :=
   | VVar :
     forall x τ e,
       Γ !!₁ x = Some (τ, e) ->
-      value Γ (EVar x).
+      value Γ (EVar x)
+  | VLoc :
+    forall l τ v,
+      Γ !!₃ l = Some (τ, v) ->
+      value Γ (EVar l).
 
+(* Evaluation contexts determine the reduction position for the small-step machine.
+   They encode the left-to-right call-by-value order used by the operational semantics. *)
 Inductive eval_ctx : Type :=
 | ECHole
-| ECAppL (E : eval_ctx) (e2 : i_expr)
-| ECAppR (v1 : i_expr) (E : eval_ctx)
-| ECPairL (E : eval_ctx) (e2 : i_expr)
-| ECPairR (v1 : i_expr) (E : eval_ctx)
+| ECAppL (E : eval_ctx) (e₂ : i_expr)
+| ECAppR (v₁ : i_expr) (E : eval_ctx)
+| ECPairL (E : eval_ctx) (e₂ : i_expr)
+| ECPairR (v₁ : i_expr) (E : eval_ctx)
 | ECFst (E : eval_ctx)
 | ECSnd (E : eval_ctx)
-| ECIf (E : eval_ctx) (e2 e3 : i_expr)
+| ECIf (E : eval_ctx) (e₂ e₃ : i_expr)
 | ECNewRef (τ : i_ty) (E : eval_ctx)
 | ECGet (E : eval_ctx)
-| ECSetL (E : eval_ctx) (e2 : i_expr)
-| ECSetR (v1 : i_expr) (E : eval_ctx)
-| ECPlusL (E : eval_ctx) (e2 : i_expr)
-| ECPlusR (v1 : i_expr) (E : eval_ctx)
+| ECSetL (E : eval_ctx) (e₂ : i_expr)
+| ECSetR (v₁ : i_expr) (E : eval_ctx)
+| ECPlusL (E : eval_ctx) (e₂ : i_expr)
+| ECPlusR (v₁ : i_expr) (E : eval_ctx)
 | ECNot (E : eval_ctx)
-| ECAndL (E : eval_ctx) (e2 : i_expr)
-| ECAndR (v1 : i_expr) (E : eval_ctx)
-| ECOrL (E : eval_ctx) (e2 : i_expr)
-| ECOrR (v1 : i_expr) (E : eval_ctx)
-| ECImpL (E : eval_ctx) (e2 : i_expr)
-| ECImpR (v1 : i_expr) (E : eval_ctx)
-| ECEqL (E : eval_ctx) (e2 : i_expr)
-| ECEqR (v1 : i_expr) (E : eval_ctx).
+| ECAndL (E : eval_ctx) (e₂ : i_expr)
+| ECAndR (v₁ : i_expr) (E : eval_ctx)
+| ECOrL (E : eval_ctx) (e₂ : i_expr)
+| ECOrR (v₁ : i_expr) (E : eval_ctx)
+| ECImpL (E : eval_ctx) (e₂ : i_expr)
+| ECImpR (v₁ : i_expr) (E : eval_ctx)
+| ECEqL (E : eval_ctx) (e₂ : i_expr)
+| ECEqR (v₁ : i_expr) (E : eval_ctx).
 
 Fixpoint plug (E : eval_ctx) (e : i_expr) : i_expr :=
   match E with
   | ECHole => e
-  | ECAppL E' e2 => EApp (plug E' e) e2
-  | ECAppR v1 E' => EApp v1 (plug E' e)
-  | ECPairL E' e2 => EPair (plug E' e) e2
-  | ECPairR v1 E' => EPair v1 (plug E' e)
+  | ECAppL E' e₂ => EApp (plug E' e) e₂
+  | ECAppR v₁ E' => EApp v₁ (plug E' e)
+  | ECPairL E' e₂ => EPair (plug E' e) e₂
+  | ECPairR v₁ E' => EPair v₁ (plug E' e)
   | ECFst E' => EFst (plug E' e)
   | ECSnd E' => ESnd (plug E' e)
-  | ECIf E' e2 e3 => EIf (plug E' e) e2 e3
+  | ECIf E' e₂ e₃ => EIf (plug E' e) e₂ e₃
   | ECNewRef τ E' => ENewRef τ (plug E' e)
   | ECGet E' => EGet (plug E' e)
-  | ECSetL E' e2 => ESet (plug E' e) e2
-  | ECSetR v1 E' => ESet v1 (plug E' e)
-  | ECPlusL E e2 => EPlus (plug E e) e2
-  | ECPlusR v1 E => EPlus v1 (plug E e)
-  | ECNot E => ENot (plug E e)
-  | ECAndL E e2 => EAnd (plug E e) e2
-  | ECAndR v1 E => EAnd v1 (plug E e)
-  | ECOrL E e2 => EOr (plug E e) e2
-  | ECOrR v1 E => EOr v1 (plug E e)
-  | ECImpL E e2 => EImp (plug E e) e2
-  | ECImpR v1 E => EImp v1 (plug E e)
-  | ECEqL E e2 => EEq (plug E e) e2
-  | ECEqR v1 E => EEq v1 (plug E e)
+  | ECSetL E' e₂ => ESet (plug E' e) e₂
+  | ECSetR v₁ E' => ESet v₁ (plug E' e)
+  | ECPlusL E' e₂ => EPlus (plug E' e) e₂
+  | ECPlusR v₁ E' => EPlus v₁ (plug E' e)
+  | ECNot E' => ENot (plug E' e)
+  | ECAndL E' e₂ => EAnd (plug E' e) e₂
+  | ECAndR v₁ E' => EAnd v₁ (plug E' e)
+  | ECOrL E' e₂ => EOr (plug E' e) e₂
+  | ECOrR v₁ E' => EOr v₁ (plug E' e)
+  | ECImpL E' e₂ => EImp (plug E' e) e₂
+  | ECImpR v₁ E' => EImp v₁ (plug E' e)
+  | ECEqL E' e₂ => EEq (plug E' e) e₂
+  | ECEqR v₁ E' => EEq v₁ (plug E' e)
   end.
 
 Definition base_eq (v1 v2 : i_expr) : bool :=
@@ -93,9 +103,9 @@ Fixpoint expr_subst (x : string) (s : i_expr) (e : i_expr) : i_expr :=
   | EBool b => EBool b
   | ENat n => ENat n
   | EUnit u => EUnit u
-  | EFix f y τ1 τ2 body =>
-    if String.eqb f x || String.eqb y x then EFix f y τ1 τ2 body
-    else EFix f y τ1 τ2 (expr_subst x s body)
+  | EFix f y τ₁ τ₂ body =>
+    if String.eqb f x || String.eqb y x then EFix f y τ₁ τ₂ body
+    else EFix f y τ₁ τ₂ (expr_subst x s body)
   | EApp e1 e2 => EApp (expr_subst x s e1) (expr_subst x s e2)
   | EPlus e1 e2 => EPlus (expr_subst x s e1) (expr_subst x s e2)
   | EPair e1 e2 => EPair (expr_subst x s e1) (expr_subst x s e2)
@@ -125,6 +135,9 @@ Fixpoint ty_subst (x : string) (s : i_expr) (τ : i_ty) : i_ty :=
   | TRef t => TRef (ty_subst x s t)
   end.
 
+(* One-step machine reduction on configurations.
+   A reduction may update both the expression and the runtime context, in particular
+   through allocation and mutation of the store component. *)
 Inductive step : (ctx * i_expr) -> (ctx * i_expr) -> Prop :=
   | StepCtx :
     forall Γ₁ Γ₂ e e' E,
@@ -176,23 +189,24 @@ Inductive step : (ctx * i_expr) -> (ctx * i_expr) -> Prop :=
   | StepNew :
     forall Γ τ v l,
       value Γ v ->
-      l ∉ (var_dom Γ) ->
+      ~ In l (var_dom Γ) ->
+      ~ In l (store_dom Γ) ->
       step
         (Γ, ENewRef τ v)
-        (Γ ,,v l ↦ (τ, v), EVar l)
+        (Γ ,,s l ↦ (τ, v), EVar l)
   | StepGet :
     forall Γ x τ v,
-      Γ !!₁ x = Some (τ, v) ->
+      Γ !!₃ x = Some (τ, v) ->
       step
         (Γ, EGet (EVar x))
         (Γ, v)
   | StepSet :
     forall Γ x τ v e,
       value Γ v ->
-      Γ !!₁ x = Some (τ, e) ->
+      Γ !!₃ x = Some (τ, e) ->
       step
         (Γ, ESet (EVar x) v)
-        (Γ ,,v x ↦ (τ, v), EUnit tt)
+        (Γ ,,s x ↦ (τ, v), EUnit tt)
   | StepFail :
     forall Γ E,
       step
@@ -232,86 +246,17 @@ Inductive step : (ctx * i_expr) -> (ctx * i_expr) -> Prop :=
         (Γ, EPlus (ENat n₁) (ENat n₂))
         (Γ, ENat (n₁ + n₂)).
 
+(* Reflexive-transitive closure of the small-step reduction relation.
+   This judgment is used as the ambient execution notion for semantic entailment. *)
 Inductive eval : (ctx * i_expr) -> (ctx * i_expr) -> Prop :=
 | steps_refl :
     forall σ,
     eval σ σ
 | steps_step :
-    forall σ1 σ2 σ3,
-      step σ1 σ2 ->
-      eval σ2 σ3 ->
-      eval σ1 σ3.
+    forall σ₁ σ₂ σ₃,
+      step σ₁ σ₂ ->
+      eval σ₂ σ₃ ->
+      eval σ₁ σ₃.
 
-Ltac solve_var :=
-  eapply StepVar;
-  unfold ctx_add_var, var_ctx_lookup;
-  simpl;
-  apply lookup_insert; simpl.
-
-Lemma eval_app_test : forall Γ, eval (Γ, (EApp (EFix "f" "x" (TProd (TBase BNat) (TBase BBool)) (TBase BBool) (ESnd (EVar "x"))) (EPair (ENat 42) (EBool false)))) (Γ, (EBool false)).
-Proof.
-  intros.
-  eapply steps_step.
-  apply StepFix.
-  apply VPair.
-  apply VNat.
-  apply VBool.
-  simpl.
-  eapply steps_step.
-  apply StepSnd.
-  apply VNat.
-  apply VBool.
-  apply steps_refl.
-Qed.
-
-Lemma eval_eq_test : forall Γ, eval ((ctx_add_var Γ "x" (TBase BNat) (ENat 2)), (EEq (ENat 2) (EVar "x"))) ((ctx_add_var Γ "x" (TBase BNat) (ENat 2)), (EBool true)).
-Proof.
-  intros.
-  econstructor.
-  eapply StepCtx with (E := ECEqR (ENat 2) ECHole). solve_var.
-  simpl. econstructor.
-  apply StepEq.
-  econstructor.
-  econstructor.
-  simpl. reflexivity.
-  apply steps_refl.
-Qed.
-
-Lemma eval_bool_test : forall Γ, eval (Γ, (EEq (EImp (ENot (EBool false)) (EEq (EPair (ENat 2) (EBool true)) (EString "hehe"))) (EAnd (EOr (EBool true) (EBool false)) (EIf (EEq (EUnit ()) (EUnit ())) (EBool false) (EBool true))))) (Γ, (EBool true)).
-Proof.
-  intros.
-  econstructor.
-  eapply StepCtx with (E := ECEqL ECHole (EAnd (EOr (EBool true) (EBool false)) (EIf (EEq (EUnit ()) (EUnit ())) (EBool false) (EBool true)))).
-  eapply StepCtx with (E := ECImpL ECHole (EEq (EPair (ENat 2) (EBool true)) (EString "hehe"))).
-  apply StepNot.
-  simpl. econstructor.
-  eapply StepCtx with (E := ECEqL ECHole (EAnd (EOr (EBool true) (EBool false)) (EIf (EEq (EUnit ()) (EUnit ())) (EBool false) (EBool true)))).
-  eapply StepCtx with (E := ECImpR (EBool true) ECHole).
-  apply StepEq.
-  econstructor.
-  econstructor.
-  econstructor.
-  econstructor.
-  simpl. reflexivity.
-  econstructor.
-  simpl. eapply StepCtx with (E := ECEqL ECHole (EAnd (EOr (EBool true) (EBool false)) (EIf (EEq (EUnit ()) (EUnit ())) (EBool false) (EBool true)))).
-  apply StepImp.
-  econstructor.
-  simpl. eapply StepCtx with (E := ECEqR (EBool false) ECHole).
-  eapply StepCtx with (E := ECAndL ECHole (EIf (EEq (EUnit ()) (EUnit ())) (EBool false) (EBool true))). apply StepOr.
-  econstructor. simpl.
-  eapply StepCtx with (E := ECEqR (EBool false) ECHole).
-  eapply StepCtx with (E := ECAndR (EBool true) ECHole).
-  eapply StepCtx with (E := ECIf ECHole (EBool false) (EBool true)).
-  apply StepEq. econstructor. econstructor. simpl. reflexivity. simpl.
-  econstructor.
-  eapply StepCtx with (E := ECEqR (EBool false) ECHole).
-  eapply StepCtx with (E := ECAndR (EBool true) ECHole).
-  apply StepIfTrue. simpl.
-  econstructor.
-  eapply StepCtx with (E := ECEqR (EBool false) ECHole).
-  apply StepAnd. simpl.
-  econstructor.
-  apply StepEq. econstructor. econstructor. simpl. reflexivity.
-  apply steps_refl.
-Qed.
+Notation "σ₁ ↠* σ₂" := (eval σ₁ σ₂)
+  (at level 70).

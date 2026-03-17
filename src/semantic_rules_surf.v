@@ -1,25 +1,39 @@
 Require Import DTDT.syntax.
-Require Import DTDT.big_step_eval_inter.
 Require Import DTDT.semantic_rules_inter.
 
-(* --- Pure term validation - surface language -------------------------------------------- *)
+(* Pure typing for surface expressions. *)
 
-Fixpoint is_simple_type_surf (type : ty) : bool :=
-  match type with
+Fixpoint is_simple_type_surf (τ : ty) : bool :=
+  match τ with
   | TyBase _ => true
   | TyArr t1 t2 => is_simple_type_surf t1 && is_simple_type_surf t2
   | TyProd t1 t2 => is_simple_type_surf t1 && is_simple_type_surf t2
+  | TyRef t => is_simple_type_surf t
+  | TyDeRef t => is_simple_type_surf t
   | _ => false
   end.
 
-Definition essential_type_is_base_type_surf (type : ty) : bool :=
-  match type with
+Definition essential_type_surf (τ : ty) : ty :=
+  match τ with
+  | TySet _ b _ => TyBase b
+  | _ => τ
+  end.
+
+Definition essential_type_is_base_type_surf (τ : ty) : bool :=
+  match τ with
   | TyBase _ => true
   | TySet _ _ _ => true
   | _ => false
   end.
 Notation "βs[ t ]" := (essential_type_is_base_type_surf t) (at level 10).
 
+Reserved Notation "Γ ⊢ₛpure e : τ" (at level 74, e, τ at next level).
+Reserved Notation "Γ ⊢ₛvalid τ" (at level 74, τ at next level).
+
+(* Pure typing judgment for surface expressions.
+   Paper form: Γ ⊢ₛpure e : τ.
+   This is the source-language analogue of internal pure typing and identifies the
+   fragment that may appear in refinements and other purity-sensitive positions. *)
 Inductive has_type_pure_surf
   ( Γ : ctx_surf)
   : expr -> ty -> Prop :=
@@ -27,7 +41,7 @@ Inductive has_type_pure_surf
     forall x τb v,
       Γ !!₁ₛ x = Some (τb, v) ->
       βs[ τb ] ->
-      has_type_pure_surf Γ (ExVar x) τb
+      has_type_pure_surf Γ (ExVar x) (essential_type_surf τb)
   | PNatS :
     forall n,
       has_type_pure_surf Γ (ExNat n) (TyBase BNat)
@@ -76,8 +90,15 @@ Inductive has_type_pure_surf
       has_type_pure_surf Γ n₂ (TyBase BNat) ->
       has_type_pure_surf Γ (ExPlus n₁ n₂) (TyBase BNat).
 
-(* --- Type wellformedness for surface language -----------------------------*)
+Notation "Γ ⊢ₛpure e : τ" := (has_type_pure_surf Γ e τ)
+  (at level 74, e, τ at next level).
 
+(* Well-formedness of surface types. *)
+
+(* Type validity judgment for surface types.
+   Paper form: Γ ⊢ₛvalid τ.
+   A valid surface type is well-formed relative to Γ, including the well-typedness
+   of refinement predicates in the surface pure fragment. *)
 Inductive ty_valid_surf
   (Γ : ctx_surf)
   : ty -> Prop :=
@@ -112,7 +133,10 @@ Inductive ty_valid_surf
       ty_valid_surf Γ τ₁ ->
       ty_valid_surf Γ (TyDeRef τ₁).
 
-(* --- Substitution for surface language ----------------------------------- *)
+Notation "Γ ⊢ₛvalid τ" := (ty_valid_surf Γ τ)
+  (at level 74, τ at next level).
+
+(* Capture-avoiding substitution on surface expressions and types. *)
 
 Fixpoint expr_subst_surf (x : string) (s : expr) (e : expr) : expr :=
   match e with
@@ -162,3 +186,5 @@ Fixpoint ty_subst_surf (x : string) (s : expr) (τ : ty) : ty :=
   | TyRef t => TyRef (ty_subst_surf x s t)
   | TyDeRef t => TyDeRef (ty_subst_surf x s t)
   end.
+
+

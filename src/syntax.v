@@ -78,17 +78,21 @@ Notation "Γ ,, x ↦ v" :=
   (<[x := v]> Γ)
   (at level 20, right associativity).
 
-(* Γ (\Gamma) - the context for variables *)
+(* ? (\Γ) - the context for variables *)
 Definition var_context := gmap string (i_ty * i_expr).
 
-(* Φ (\F) - the context for constants *)
+(* ? (\F) - the context for constants *)
 Definition const_context := gmap string (i_ty * i_expr).
 
-Definition ctx : Type := (var_context * const_context).
-Notation "Γ ▷vars"   := (fst Γ)   (at level 10).
-Notation "Γ ▷consts" := (snd Γ) (at level 10).
+(* ? - the runtime store for locations *)
+Definition store_context := gmap string (i_ty * i_expr).
 
-Definition empty_ctx : ctx := (∅, ∅).
+Definition ctx : Type := ((var_context * const_context) * store_context).
+Notation "Γ ▷vars"   := (fst (fst Γ)) (at level 10).
+Notation "Γ ▷consts" := (snd (fst Γ)) (at level 10).
+Notation "Γ ▷store"  := (snd Γ) (at level 10).
+
+Definition empty_ctx : ctx := ((∅, ∅), ∅).
 
 Definition var_ctx_lookup (Γ : ctx) (x : string) : option (i_ty * i_expr) := (Γ ▷vars) !! x.
 Notation "c !!₁ x" := (var_ctx_lookup c x) (at level 50).
@@ -96,18 +100,29 @@ Notation "c !!₁ x" := (var_ctx_lookup c x) (at level 50).
 Definition const_ctx_lookup (Γ : ctx) (x : string) : option (i_ty * i_expr) := (Γ ▷consts) !! x.
 Notation "c !!₂ x" := (const_ctx_lookup c x) (at level 50).
 
+Definition store_ctx_lookup (Γ : ctx) (x : string) : option (i_ty * i_expr) := (Γ ▷store) !! x.
+Notation "c !!₃ x" := (store_ctx_lookup c x) (at level 50).
+
 Definition ctx_add_var (Γ : ctx) (x : string) (τ : i_ty) (exp : i_expr) : ctx :=
-  (<[ x := (τ, exp) ]> (Γ ▷vars), Γ ▷consts).
-Notation "Γ ,,v x ↦ v" :=
-  (ctx_add_var Γ x (fst v) (snd v))
+  ((<[ x := (τ, exp) ]> (Γ ▷vars), Γ ▷consts), Γ ▷store).
+Notation "g ,,v x ↦ v" :=
+  (ctx_add_var g x (fst v) (snd v))
   (at level 30).
 
 Definition ctx_add_const (Γ : ctx) (f : string) (τ : i_ty) (e : i_expr) : ctx :=
-  (Γ ▷vars, <[ f := (τ, e) ]>  (Γ ▷consts)).
-Notation "Γ ,,c f ↦ v" :=
-  (ctx_add_const Γ f (fst v) (snd v))
+  ((Γ ▷vars, <[ f := (τ, e) ]> (Γ ▷consts)), Γ ▷store).
+Notation "g ,,c f ↦ v" :=
+  (ctx_add_const g f (fst v) (snd v))
   (at level 30).
 
+Definition ctx_add_store (Γ : ctx) (l : string) (τ : i_ty) (exp : i_expr) : ctx :=
+  ((Γ ▷vars, Γ ▷consts), <[ l := (τ, exp) ]> (Γ ▷store)).
+Notation "g ,,s l ↦ v" :=
+  (ctx_add_store g l (fst v) (snd v))
+  (at level 30).
+
+Definition add_ctx (Γ₁ Γ₂ : ctx) : ctx :=
+  (((Γ₂ ▷vars) ∪ (Γ₁ ▷vars), (Γ₂ ▷consts) ∪ (Γ₁ ▷consts)), (Γ₂ ▷store) ∪ (Γ₁ ▷store)).
 (* --- Syntax: types and expressions (surface language) ------------------ *)
 
 Inductive ty : Type :=
@@ -156,29 +171,32 @@ with expr : Type :=
 Scheme expr_ind_mut := Induction for expr Sort Prop
 with ty_ind_mut := Induction for ty Sort Prop.
 
-(* Γ (\Gamma) - the context for variables *)
+(* Γ (\Γ) - the context for variables *)
 Definition var_context_surf := gmap string (ty * expr).
 
 (* Φ (\F) - the context for constants *)
 Definition const_context_surf := gmap string (ty * expr).
 
-Record ctx_surf : Type := {
-  ctx_vars_surf   : var_context_surf;
-  ctx_consts_surf : const_context_surf
-}.
-Notation "Γ ▷surfvars"   := (ctx_vars_surf Γ)   (at level 40).
-Notation "Γ ▷surfconsts" := (ctx_consts_surf Γ) (at level 40).
+Definition ctx_surf : Type := (var_context_surf * const_context_surf).
+Notation "Γ ▷surfvars"   := (fst Γ) (at level 40).
+Notation "Γ ▷surfconsts" := (snd Γ) (at level 40).
+
+Definition empty_ctx_surf : ctx_surf := (∅, ∅).
 
 Definition var_ctx_lookup_surf (Γ : ctx_surf) (x : string) : option (ty * expr) := (Γ ▷surfvars) !! x.
 Notation "c !!₁ₛ x" := (var_ctx_lookup_surf c x) (at level 1).
 
-Definition const_ctx_lookup_surf (Φ : ctx_surf) (x : string) : option (ty * expr) := (Φ ▷surfconsts) !! x.
+Definition const_ctx_lookup_surf (Γ : ctx_surf) (x : string) : option (ty * expr) := (Γ ▷surfconsts) !! x.
 Notation "c !!₂ₛ x" := (const_ctx_lookup_surf c x) (at level 10).
 
 Definition ctx_add_var_surf (Γ : ctx_surf) (x : string) (τ : ty) (exp : expr) : ctx_surf :=
-  {| ctx_vars_surf   := <[ x := (τ, exp) ]> (Γ ▷surfvars);
-     ctx_consts_surf := Γ ▷surfconsts |}.
+  (<[ x := (τ, exp) ]> (Γ ▷surfvars), Γ ▷surfconsts).
+Notation "g ,,sv x ↦ v" :=
+  (ctx_add_var_surf g x (fst v) (snd v))
+  (at level 30).
 
 Definition ctx_add_const_surf (Γ : ctx_surf) (f : string) (τ : ty) (e : expr) : ctx_surf :=
-  {| ctx_vars_surf   := Γ ▷surfvars;
-     ctx_consts_surf := <[ f := (τ, e) ]>  (Γ ▷surfconsts) |}.
+  (Γ ▷surfvars, <[ f := (τ, e) ]> (Γ ▷surfconsts)).
+Notation "g ,,sc f ↦ v" :=
+  (ctx_add_const_surf g f (fst v) (snd v))
+  (at level 30).
