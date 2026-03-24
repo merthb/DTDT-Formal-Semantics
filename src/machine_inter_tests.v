@@ -31,8 +31,8 @@ Proof.
   - eapply steps_step.
     + eapply StepCtx with (E := ECIf ECHole (ESet (EVar "l") (ENat 5)) EFail).
       apply StepEq.
-      * apply VNat.
-      * apply VNat.
+      * apply BVNat.
+      * apply BVNat.
       * reflexivity.
     + eapply steps_step.
       * apply StepIfTrue.
@@ -67,8 +67,8 @@ Proof.
     + eapply steps_step.
       * eapply StepCtx with (E := ECIf ECHole (ESet (EVar "l") (ENat 7)) EFail).
         apply StepEq.
-        -- apply VNat.
-        -- apply VNat.
+        -- apply BVNat.
+        -- apply BVNat.
         -- reflexivity.
       * eapply steps_step.
         -- apply StepIfTrue.

@@ -101,8 +101,8 @@ Proof.
     + eapply steps_step.
       * eapply StepCtx with (E := ECImpL ECHole (EOr (EEq (EVar "x") (ENat 3)) (EEq (EVar "x") (ENat 4)))).
         apply StepEq.
-        -- apply VNat.
-        -- apply VNat.
+        -- apply BVNat.
+        -- apply BVNat.
         -- reflexivity.
       * eapply steps_step.
         -- eapply StepCtx with (E := ECImpR (EBool true) ECHole).
@@ -113,8 +113,8 @@ Proof.
            ++ eapply StepCtx with (E := ECImpR (EBool true) ECHole).
               eapply StepCtx with (E := ECOrL ECHole (EEq (EVar "x") (ENat 4))).
               apply StepEq.
-              ** apply VNat.
-              ** apply VNat.
+              ** apply BVNat.
+              ** apply BVNat.
               ** reflexivity.
            ++ eapply steps_step.
               ** eapply StepCtx with (E := ECImpR (EBool true) ECHole).
@@ -125,8 +125,8 @@ Proof.
                  --- eapply StepCtx with (E := ECImpR (EBool true) ECHole).
                      eapply StepCtx with (E := ECOrR (EBool true) ECHole).
                      apply StepEq.
-                     +++ apply VNat.
-                     +++ apply VNat.
+                     +++ apply BVNat.
+                     +++ apply BVNat.
                      +++ reflexivity.
                  --- eapply steps_step.
                      +++ eapply StepCtx with (E := ECImpR (EBool true) ECHole).

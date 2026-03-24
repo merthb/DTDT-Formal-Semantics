@@ -32,6 +32,12 @@ Inductive value (Γ : ctx) : i_expr -> Prop :=
       Γ !!₃ l = Some (τ, v) ->
       value Γ (EVar l).
 
+Inductive base_value : i_expr -> Prop :=
+  | BVNat : forall n, base_value (ENat n)
+  | BVBool : forall b, base_value (EBool b)
+  | BVUnit : base_value (EUnit tt)
+  | BVString : forall s, base_value (EString s).
+
 (* Evaluation contexts determine the reduction position for the small-step machine.
    They encode the left-to-right call-by-value order used by the operational semantics. *)
 Inductive eval_ctx : Type :=
@@ -234,8 +240,8 @@ Inductive step : (ctx * i_expr) -> (ctx * i_expr) -> Prop :=
         (Γ, EBool (implb b₁ b₂))
   | StepEq :
     forall Γ v₁ v₂ b,
-      value Γ v₁ ->
-      value Γ v₂ ->
+      base_value v₁ ->
+      base_value v₂ ->
       base_eq v₁ v₂ = b ->
       step
         (Γ, EEq v₁ v₂)
