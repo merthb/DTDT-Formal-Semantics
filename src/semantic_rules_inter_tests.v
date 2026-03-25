@@ -162,11 +162,7 @@ Lemma has_type_reference_inspecting_function_test :
     (TArrDep "r" (TRef (TBase BNat)) (TBase BNat)).
 Proof.
   unfold ref_inspecting_fun.
-  eapply TFun with (exp :=
-    EFix "f" "r" (TRef (TBase BNat)) (TBase BNat)
-      (EIf (EEq (ENat 0) (ENat 0))
-           (EPlus (EGet (EVar "r")) (ENat 1))
-           (ENat 0))).
+  eapply TFun.
   - apply VFunDep with (v := EVar "r").
     + apply VRef. apply VBase.
     + apply VBase.

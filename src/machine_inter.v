@@ -110,7 +110,7 @@ Fixpoint expr_subst (x : string) (s : i_expr) (e : i_expr) : i_expr :=
   | ENat n => ENat n
   | EUnit u => EUnit u
   | EFix f y τ₁ τ₂ body =>
-    if String.eqb f x || String.eqb y x then EFix f y τ₁ τ₂ body
+    if String.eqb y x then EFix f y τ₁ τ₂ body
     else EFix f y τ₁ τ₂ (expr_subst x s body)
   | EApp e1 e2 => EApp (expr_subst x s e1) (expr_subst x s e2)
   | EPlus e1 e2 => EPlus (expr_subst x s e1) (expr_subst x s e2)
@@ -129,6 +129,33 @@ Fixpoint expr_subst (x : string) (s : i_expr) (e : i_expr) : i_expr :=
   | EFail => EFail
   end.
 
+Fixpoint expr_subst_fun (f : string) (s : i_expr) (e : i_expr) : i_expr :=
+  match e with
+  | EVar y => if String.eqb f y then s else EVar y
+  | EConst c => EConst c
+  | EString v => EString v
+  | EBool b => EBool b
+  | ENat n => ENat n
+  | EUnit u => EUnit u
+  | EFix g y τ₁ τ₂ body =>
+    if String.eqb g f || String.eqb y f then EFix g y τ₁ τ₂ body
+    else EFix g y τ₁ τ₂ (expr_subst_fun f s body)
+  | EApp e1 e2 => EApp (expr_subst_fun f s e1) (expr_subst_fun f s e2)
+  | EPlus e1 e2 => EPlus (expr_subst_fun f s e1) (expr_subst_fun f s e2)
+  | EPair e1 e2 => EPair (expr_subst_fun f s e1) (expr_subst_fun f s e2)
+  | EFst e1 => EFst (expr_subst_fun f s e1)
+  | ESnd e1 => ESnd (expr_subst_fun f s e1)
+  | EIf e1 e2 e3 => EIf (expr_subst_fun f s e1) (expr_subst_fun f s e2) (expr_subst_fun f s e3)
+  | ENot e1 => ENot (expr_subst_fun f s e1)
+  | EAnd e1 e2 => EAnd (expr_subst_fun f s e1) (expr_subst_fun f s e2)
+  | EOr e1 e2 => EOr (expr_subst_fun f s e1) (expr_subst_fun f s e2)
+  | EImp e1 e2 => EImp (expr_subst_fun f s e1) (expr_subst_fun f s e2)
+  | EEq e1 e2 => EEq (expr_subst_fun f s e1) (expr_subst_fun f s e2)
+  | ENewRef τ e1 => ENewRef τ (expr_subst_fun f s e1)
+  | EGet e1 => EGet (expr_subst_fun f s e1)
+  | ESet e1 e2 => ESet (expr_subst_fun f s e1) (expr_subst_fun f s e2)
+  | EFail => EFail
+  end.
 Fixpoint ty_subst (x : string) (s : i_expr) (τ : i_ty) : i_ty :=
   match τ with
   | TBase b => TBase b

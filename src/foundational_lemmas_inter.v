@@ -500,6 +500,18 @@ Proof.
   - inversion Hself. reflexivity.
 Qed.
 
+
+Lemma self_pair_inv :
+  forall t e1 e2 t1 t2,
+    self t (EPair e1 e2) = TProd t1 t2 ->
+    t = TProd t1 t2.
+Proof.
+  intros t e1 e2 t1 t2 Hself.
+  destruct t; simpl in Hself; try discriminate.
+  - match goal with | tdom : i_ty, tcod : i_ty |- _ => destruct tdom; simpl in Hself; discriminate end.
+  - inversion Hself. reflexivity.
+Qed.
+
 Lemma inversion_ref :
   forall Γ l τ,
     var_ctx_lookup Γ l = None ->
@@ -1005,14 +1017,14 @@ Proof.
         inversion Hbinding; subst.
         destruct (subtype_preserves_essential_type G1 t_new _ Hsub H0) as [Hbeta_new Hessential].
         rewrite <- Hessential.
-        eapply PVar.
+        apply PVar with (e := e).
         -- unfold var_ctx_lookup, ctx_add_var.
            simpl.
            apply lookup_insert.
         -- exact Hbeta_new.
       * destruct H as [Hneq' _].
         contradiction.
-    + eapply PVar.
+    + apply PVar with (e := e).
       * eapply lookup_lemma_var_change_type; eauto.
       * exact H0.
   - apply PNat.
@@ -1643,6 +1655,202 @@ Proof.
       { exact Hlookup2. }
 Qed.
 
+Lemma weakening_value_right :
+  forall G1 G2 v,
+    DTDT.machine_inter.value G1 v ->
+    DTDT.machine_inter.value (add_ctx G2 G1) v.
+Proof.
+  intros G1 G2 v Hv.
+  induction Hv.
+  - apply DTDT.machine_inter.VNat.
+  - apply DTDT.machine_inter.VBool.
+  - apply DTDT.machine_inter.VUnit.
+  - apply DTDT.machine_inter.VString.
+  - eapply DTDT.machine_inter.VConst.
+    exact (lookup_lemma_const_right G1 G2 c _ _ H).
+  - apply DTDT.machine_inter.VFix.
+  - eapply DTDT.machine_inter.VPair; eauto.
+  - eapply DTDT.machine_inter.VVar.
+    exact (lookup_lemma_var_right G1 G2 x _ _ H).
+  - eapply DTDT.machine_inter.VLoc.
+    exact (lookup_lemma_store_right G1 G2 l _ _ H).
+Qed.
+
+Lemma lookup_lemma_var_ctx_subst :
+  forall C x e0 y t witness,
+    var_ctx_lookup C y = Some (t, witness) ->
+    var_ctx_lookup (ctx_subst x e0 C) y = Some (ty_subst x e0 t, expr_subst x e0 witness).
+Proof.
+  intros C x e0 y t witness Hlookup.
+  destruct C as [env store].
+  destruct env as [vars consts].
+  unfold var_ctx_lookup, ctx_subst. simpl.
+  apply lookup_fmap_Some.
+  exists (t, witness).
+  split; [reflexivity | exact Hlookup].
+Qed.
+
+Lemma lookup_lemma_const_ctx_subst :
+  forall C x e0 c t witness,
+    const_ctx_lookup C c = Some (t, witness) ->
+    const_ctx_lookup (ctx_subst x e0 C) c = Some (ty_subst x e0 t, expr_subst x e0 witness).
+Proof.
+  intros C x e0 c t witness Hlookup.
+  destruct C as [env store].
+  destruct env as [vars consts].
+  unfold const_ctx_lookup, ctx_subst. simpl.
+  apply lookup_fmap_Some.
+  exists (t, witness).
+  split; [reflexivity | exact Hlookup].
+Qed.
+
+Lemma lookup_lemma_const_ctx_subst_simple :
+  forall C x e0 c t witness,
+    const_ctx_lookup C c = Some (t, witness) ->
+    is_simple_type t = true ->
+    const_ctx_lookup (ctx_subst x e0 C) c = Some (t, expr_subst x e0 witness).
+Proof.
+  intros C x e0 c t witness Hlookup Hsimple.
+  pose proof (lookup_lemma_const_ctx_subst C x e0 c t witness Hlookup) as Hlookup'.
+  rewrite ty_subst_simple_id in Hlookup' by exact Hsimple.
+  exact Hlookup'.
+Qed.
+
+Lemma ctx_subst_add_ctx :
+  forall G1 G2 x e0,
+    ctx_subst x e0 (add_ctx G2 G1) = add_ctx (ctx_subst x e0 G2) (ctx_subst x e0 G1).
+Proof.
+  intros [env1 store1] [env2 store2] x e0.
+  destruct env1 as [vars1 consts1].
+  destruct env2 as [vars2 consts2].
+  unfold ctx_subst, add_ctx. simpl.
+  f_equal.
+  - f_equal.
+    + apply map_fmap_union.
+    + apply map_fmap_union.
+  - apply map_fmap_union.
+Qed.
+
+Lemma ctx_subst_ctx_add_var :
+  forall C y ty witness x e0,
+    ctx_subst x e0 (ctx_add_var C y ty witness) =
+    ctx_add_var (ctx_subst x e0 C) y (ty_subst x e0 ty) (expr_subst x e0 witness).
+Proof.
+  intros [env store] y ty witness x e0.
+  destruct env as [vars consts].
+  unfold ctx_subst, ctx_add_var. simpl.
+  f_equal.
+  rewrite (fmap_insert (binding_subst x e0) vars y (ty, witness)).
+  reflexivity.
+Qed.
+
+
+Lemma weakening_closed_has_type_pure_var :
+  forall G x t witness e ty,
+    free_exp_vars e = [] ->
+    has_type_pure G e ty ->
+    has_type_pure (ctx_add_var G x t witness) e ty.
+Proof.
+  intros G x t witness e ty Hclosed Hpure.
+  induction Hpure.
+  - simpl in Hclosed. discriminate.
+  - apply PNat.
+  - apply PBool.
+  - apply PString.
+  - apply PUnit.
+  - eapply PConst.
+    + unfold const_ctx_lookup, ctx_add_var in *. simpl in *. exact H.
+    + exact H0.
+  - simpl in Hclosed.
+    apply app_eq_nil in Hclosed as [Hc1 Hc2].
+    eapply PApp.
+    + exact H.
+    + exact (IHHpure1 Hc1).
+    + exact (IHHpure2 Hc2).
+  - simpl in Hclosed. eapply PNot. exact (IHHpure Hclosed).
+  - simpl in Hclosed.
+    apply app_eq_nil in Hclosed as [Hc1 Hc2].
+    apply PImp; [exact (IHHpure1 Hc1) | exact (IHHpure2 Hc2)].
+  - simpl in Hclosed.
+    apply app_eq_nil in Hclosed as [Hc1 Hc2].
+    apply PAnd; [exact (IHHpure1 Hc1) | exact (IHHpure2 Hc2)].
+  - simpl in Hclosed.
+    apply app_eq_nil in Hclosed as [Hc1 Hc2].
+    apply POr; [exact (IHHpure1 Hc1) | exact (IHHpure2 Hc2)].
+  - simpl in Hclosed.
+    apply app_eq_nil in Hclosed as [Hc1 Hc2].
+    eapply PEq; [exact (IHHpure1 Hc1) | exact (IHHpure2 Hc2)].
+  - simpl in Hclosed.
+    apply app_eq_nil in Hclosed as [Hc1 Hc2].
+    apply PPlus; [exact (IHHpure1 Hc1) | exact (IHHpure2 Hc2)].
+Qed.
+
+Lemma subst_base_has_type_pure_gen :
+  forall C x e0 t0 e t,
+    essential_type_is_base_type t0 ->
+    has_type_pure (ctx_subst x e0 C) e0 (essential_type t0) ->
+    has_type_pure (ctx_add_var C x t0 e0) e t ->
+    has_type_pure (ctx_subst x e0 C) (expr_subst x e0 e) (ty_subst x e0 t).
+Proof.
+  intros C x e0 t0 e t Hbeta0 Hpure0 Hpure.
+  induction Hpure.
+  - destruct (String.eq_dec x0 x) as [-> | Hneq].
+    + unfold var_ctx_lookup, ctx_add_var in H.
+      simpl in H.
+      apply lookup_insert_Some in H.
+      destruct H as [Hcase | Hcase].
+      * destruct Hcase as [_ Hbind].
+        inversion Hbind; subst.
+        simpl.
+        rewrite String.eqb_refl.
+        rewrite ty_subst_essential_type_id by (apply bool_prop_eq_true; exact Hbeta0).
+        exact Hpure0.
+      * destruct Hcase as [Hneq' _].
+        contradiction.
+    + lazymatch goal with
+      | |- has_type_pure _ _ (ty_subst x e0 (essential_type ?T)) =>
+          replace (ty_subst x e0 (essential_type T)) with (essential_type (ty_subst x e0 T))
+      end.
+      * simpl.
+        destruct (String.eqb x x0) eqn:Heq.
+        { apply String.eqb_eq in Heq. subst x0. contradiction. }
+        eapply PVar.
+        -- unfold var_ctx_lookup, ctx_add_var in H.
+           simpl in H.
+           apply lookup_insert_Some in H.
+           destruct H as [Hcase | Hcase].
+           { destruct Hcase as [Heq' _].
+             subst x0.
+             contradiction. }
+           destruct Hcase as [_ Hlookup].
+           exact (lookup_lemma_var_ctx_subst C x e0 x0 _ _ Hlookup).
+        -- rewrite (ty_subst_preserves_beta x e0 _ (bool_prop_eq_true _ H0)).
+           exact I.
+      * symmetry.
+        rewrite ty_subst_preserves_essential_type by (apply bool_prop_eq_true; exact H0).
+        reflexivity.
+  - simpl. apply PNat.
+  - simpl. apply PBool.
+  - simpl. apply PString.
+  - simpl. apply PUnit.
+  - simpl.
+    rewrite ty_subst_simple_id by (apply bool_prop_eq_true; exact H0).
+    eapply PConst.
+    + exact (lookup_lemma_const_ctx_subst_simple C x e0 c _ _ H (bool_prop_eq_true _ H0)).
+    + exact H0.
+  - simpl.
+    eapply PApp.
+    + rewrite (ty_subst_preserves_beta x e0 _ (bool_prop_eq_true _ H)). exact I.
+    + exact IHHpure1.
+    + exact IHHpure2.
+  - simpl. apply PNot. exact IHHpure.
+  - simpl. apply PImp; assumption.
+  - simpl. apply PAnd; assumption.
+  - simpl. apply POr; assumption.
+  - simpl. eapply PEq; eauto.
+  - simpl. apply PPlus; assumption.
+Qed.
+
 (* Paper Lemma 6, pure clause.
    Base substitution preserves pure typing. *)
 Lemma subst_base_has_type_pure :
@@ -1708,6 +1916,166 @@ Proof.
   - simpl. apply PPlus; assumption.
 Qed.
 
+Lemma subst_base_has_type_pure_shadow :
+  forall G1 G2 x e0 t0 tb witness e t,
+    DTDT.machine_inter.value G1 e0 ->
+    essential_type_is_base_type t0 ->
+    has_type_pure G1 e0 (essential_type t0) ->
+    has_type G1 e0 t0 ->
+    ctx_subst x e0 G1 = G1 ->
+    has_type_pure (ctx_add_var (add_ctx G2 G1) x (TBase tb) witness) e t ->
+    has_type_pure (ctx_add_var (add_ctx (ctx_subst x e0 G2) G1) x (TBase tb) witness) e t.
+Proof.
+  intros G1 G2 x e0 t0 tb witness e t Hv0 Hbeta0 Hpure0 Hty0 Hctx Hpure.
+  induction Hpure.
+  - destruct (String.eq_dec x0 x) as [-> | Hneq].
+    + unfold var_ctx_lookup, ctx_add_var in H.
+      simpl in H.
+      apply lookup_insert_Some in H.
+      destruct H as [Hcase | Hcase].
+      * destruct Hcase as [_ Hbind].
+        inversion Hbind; subst.
+        eapply PVar.
+        -- unfold var_ctx_lookup, ctx_add_var.
+           simpl.
+           apply lookup_insert.
+        -- exact H0.
+      * destruct Hcase as [Hneq' _].
+        contradiction.
+    + lazymatch goal with
+      | |- has_type_pure _ _ (essential_type ?T) =>
+          replace (essential_type T) with (essential_type (ty_subst x e0 T))
+      end.
+      * eapply PVar.
+        -- unfold var_ctx_lookup, ctx_add_var in H |- *.
+           simpl in H |- *.
+           apply lookup_insert_Some in H.
+           destruct H as [Hcase | Hcase].
+           { destruct Hcase as [Heq _].
+             subst x0.
+             contradiction. }
+           destruct Hcase as [_ Hlookup_base].
+           apply lookup_insert_Some.
+           right.
+           split.
+           { congruence. }
+           { exact (lookup_lemma_var_subst_base G1 G2 x e0 x0 _ _ Hctx Hneq Hlookup_base). }
+        -- rewrite (ty_subst_preserves_beta x e0 _ (bool_prop_eq_true _ H0)).
+           exact I.
+      * lazymatch goal with
+        | |- essential_type (ty_subst x e0 ?T) = essential_type ?T =>
+            rewrite ty_subst_preserves_essential_type by (apply bool_prop_eq_true; exact H0);
+            rewrite ty_subst_essential_type_id by (apply bool_prop_eq_true; exact H0);
+            reflexivity
+        end.
+  - apply PNat.
+  - apply PBool.
+  - apply PString.
+  - apply PUnit.
+  - eapply PConst.
+    + unfold const_ctx_lookup, ctx_add_var in H |- *.
+      simpl in H |- *.
+      exact (lookup_lemma_const_subst_base G1 G2 x e0 c _ _ Hctx H (bool_prop_eq_true _ H0)).
+    + exact H0.
+  - eapply PApp; eauto.
+  - apply PNot. exact IHHpure.
+  - apply PImp; assumption.
+  - apply PAnd; assumption.
+  - apply POr; assumption.
+  - eapply PEq; eauto.
+  - apply PPlus; assumption.
+Qed.
+
+
+Lemma subst_base_has_type_pure_shadow_ctx :
+  forall C x e0 t0 t_old witness e t,
+    essential_type_is_base_type t0 = true ->
+    has_type_pure (ctx_subst x e0 C) e0 (essential_type t0) ->
+    has_type_pure (ctx_add_var C x t_old witness) e t ->
+    has_type_pure (ctx_add_var (ctx_subst x e0 C) x (ty_subst x e0 t_old) witness) e t.
+Proof.
+  intros C x e0 t0 t_old witness e t Hbeta0 Hpure0 Hpure.
+  induction Hpure.
+  - destruct (String.eq_dec x0 x) as [-> | Hneq].
+    + unfold var_ctx_lookup, ctx_add_var in H.
+      simpl in H.
+      apply lookup_insert_Some in H.
+      destruct H as [Hcase | Hcase].
+      * destruct Hcase as [_ Hbind].
+        inversion Hbind; subst.
+        lazymatch goal with
+        | |- has_type_pure _ _ (essential_type ?T) =>
+            replace (essential_type T) with (essential_type (ty_subst x e0 T))
+        end.
+        2:{
+          symmetry.
+          rewrite ty_subst_preserves_essential_type by (apply bool_prop_eq_true; exact H0).
+          rewrite ty_subst_essential_type_id by (apply bool_prop_eq_true; exact H0).
+          reflexivity.
+        }
+        eapply PVar.
+        -- unfold var_ctx_lookup, ctx_add_var.
+           simpl.
+           apply lookup_insert.
+        -- rewrite ty_subst_preserves_beta by (apply bool_prop_eq_true; exact H0).
+           exact I.
+      * destruct Hcase as [Hneq' _].
+        contradiction.
+    + lazymatch goal with
+      | |- has_type_pure _ _ (essential_type ?T) =>
+          replace (essential_type T) with (essential_type (ty_subst x e0 T))
+      end.
+      2:{
+        symmetry.
+        rewrite ty_subst_preserves_essential_type by (apply bool_prop_eq_true; exact H0).
+        rewrite ty_subst_essential_type_id by (apply bool_prop_eq_true; exact H0).
+        reflexivity.
+      }
+      eapply PVar with (e := expr_subst x e0 e).
+      * unfold var_ctx_lookup, ctx_add_var in H |- *.
+        simpl in H |- *.
+        apply lookup_insert_Some in H.
+        destruct H as [Hcase | Hcase].
+        { destruct Hcase as [Heq _]. subst x0. contradiction. }
+        destruct Hcase as [_ Hlookup].
+        apply lookup_insert_Some.
+        right.
+        split.
+        -- congruence.
+        -- exact (lookup_lemma_var_ctx_subst C x e0 x0 _ _ Hlookup).
+      * rewrite ty_subst_preserves_beta by (apply bool_prop_eq_true; exact H0).
+        exact I.
+  - apply PNat.
+  - apply PBool.
+  - apply PString.
+  - apply PUnit.
+  - eapply PConst.
+    + unfold const_ctx_lookup, ctx_add_var in H |- *.
+      simpl in H |- *.
+      exact (lookup_lemma_const_ctx_subst_simple C x e0 c _ _ H (bool_prop_eq_true _ H0)).
+    + exact H0.
+  - eapply PApp.
+    + exact H.
+    + exact IHHpure1.
+    + exact IHHpure2.
+  - apply PNot. exact IHHpure.
+  - apply PImp; assumption.
+  - apply PAnd; assumption.
+  - apply POr; assumption.
+  - eapply PEq; eauto.
+  - apply PPlus; assumption.
+Qed.
+
+
+
+Lemma subst_base_ty_valid_ctx :
+  forall C x e0 t0 t,
+    β[ t0 ] ->
+    has_type_pure (ctx_subst x e0 C) e0 (essential_type t0) ->
+    free_exp_vars e0 = [] ->
+    ty_valid (ctx_add_var C x t0 e0) t ->
+    ty_valid (ctx_subst x e0 C) (ty_subst x e0 t).
+Admitted.
 
 (* Paper Lemma 6, validity clause.
    Base substitution preserves type validity. *)
@@ -1718,8 +2086,29 @@ Lemma subst_base_ty_valid :
     has_type_pure G1 e0 (essential_type t0) ->
     has_type G1 e0 t0 ->
     ctx_subst x e0 G1 = G1 ->
+    free_exp_vars e0 = [] ->
     ty_valid (ctx_add_var (add_ctx G2 G1) x t0 e0) t ->
     ty_valid (add_ctx (ctx_subst x e0 G2) G1) (ty_subst x e0 t).
+Proof.
+  intros G1 G2 x e0 t0 t Hv0 Hbeta0 Hpure0 Hty0 Hctx Hclosed Hvalid.
+  assert (Hpure_ctx : has_type_pure (ctx_subst x e0 (add_ctx G2 G1)) e0 (essential_type t0)).
+  { rewrite ctx_subst_add_ctx.
+    rewrite Hctx.
+    apply weakening_has_type_pure_right.
+    exact Hpure0. }
+  pose proof (subst_base_ty_valid_ctx (add_ctx G2 G1) x e0 t0 t Hbeta0 Hpure_ctx Hclosed Hvalid) as Hvalid'.
+  rewrite ctx_subst_add_ctx in Hvalid'.
+  rewrite Hctx in Hvalid'.
+  exact Hvalid'.
+Qed.
+
+Lemma subst_base_subtype_ctx :
+  forall C x e0 t0 t1 t2,
+    β[ t0 ] ->
+    has_type_pure (ctx_subst x e0 C) e0 (essential_type t0) ->
+    free_exp_vars e0 = [] ->
+    subtype (ctx_add_var C x t0 e0) t1 t2 ->
+    subtype (ctx_subst x e0 C) (ty_subst x e0 t1) (ty_subst x e0 t2).
 Admitted.
 
 (* Paper Lemma 6, subtyping clause.
@@ -1731,12 +2120,35 @@ Lemma subst_base_subtype :
     has_type_pure G1 e0 (essential_type t0) ->
     has_type G1 e0 t0 ->
     ctx_subst x e0 G1 = G1 ->
+    free_exp_vars e0 = [] ->
     subtype (ctx_add_var (add_ctx G2 G1) x t0 e0) t1 t2 ->
     subtype (add_ctx (ctx_subst x e0 G2) G1) (ty_subst x e0 t1) (ty_subst x e0 t2).
-Admitted.
+Proof.
+  intros G1 G2 x e0 t0 t1 t2 Hv0 Hbeta0 Hpure0 Hty0 Hctx Hclosed Hsub.
+  assert (Hpure_ctx : has_type_pure (ctx_subst x e0 (add_ctx G2 G1)) e0 (essential_type t0)).
+  { rewrite ctx_subst_add_ctx.
+    rewrite Hctx.
+    apply weakening_has_type_pure_right.
+    exact Hpure0. }
+  pose proof (subst_base_subtype_ctx (add_ctx G2 G1) x e0 t0 t1 t2 Hbeta0 Hpure_ctx Hclosed Hsub) as Hsub'.
+  rewrite ctx_subst_add_ctx in Hsub'.
+  rewrite Hctx in Hsub'.
+  exact Hsub'.
+Qed.
 
 (* Paper Lemma 6, selfification bridge.
    Base substitution commutes with the selfification step used by typing. *)
+Lemma subst_base_self_subtype_ctx :
+  forall C x e0 t0 e t,
+    β[ t0 ] ->
+    has_type_pure (ctx_subst x e0 C) e0 (essential_type t0) ->
+    free_exp_vars e0 = [] ->
+    has_type (ctx_add_var C x t0 e0) e t ->
+    subtype (ctx_subst x e0 C)
+      (self (ty_subst x e0 t) (expr_subst x e0 e))
+      (ty_subst x e0 (self t e)).
+Admitted.
+
 Lemma subst_base_self_subtype :
   forall G1 G2 x e0 t0 e t,
     DTDT.machine_inter.value G1 e0 ->
@@ -1744,14 +2156,35 @@ Lemma subst_base_self_subtype :
     has_type_pure G1 e0 (essential_type t0) ->
     has_type G1 e0 t0 ->
     ctx_subst x e0 G1 = G1 ->
+    free_exp_vars e0 = [] ->
     has_type (ctx_add_var (add_ctx G2 G1) x t0 e0) e t ->
     subtype (add_ctx (ctx_subst x e0 G2) G1)
       (self (ty_subst x e0 t) (expr_subst x e0 e))
       (ty_subst x e0 (self t e)).
-Admitted.
+Proof.
+  intros G1 G2 x e0 t0 e t Hv0 Hbeta0 Hpure0 Hty0 Hctx Hclosed Hty.
+  assert (Hpure_ctx : has_type_pure (ctx_subst x e0 (add_ctx G2 G1)) e0 (essential_type t0)).
+  { rewrite ctx_subst_add_ctx.
+    rewrite Hctx.
+    apply weakening_has_type_pure_right.
+    exact Hpure0. }
+  pose proof (subst_base_self_subtype_ctx (add_ctx G2 G1) x e0 t0 e t Hbeta0 Hpure_ctx Hclosed Hty) as Hsub.
+  rewrite ctx_subst_add_ctx in Hsub.
+  rewrite Hctx in Hsub.
+  exact Hsub.
+Qed.
 
 (* Paper Lemma 6, typing clause.
    Base substitution preserves typing. *)
+Lemma subst_base_has_type_ctx :
+  forall C x e0 t0 e t,
+    β[ t0 ] ->
+    has_type_pure (ctx_subst x e0 C) e0 (essential_type t0) ->
+    free_exp_vars e0 = [] ->
+    has_type (ctx_add_var C x t0 e0) e t ->
+    has_type (ctx_subst x e0 C) (expr_subst x e0 e) (ty_subst x e0 t).
+Admitted.
+
 Lemma subst_base_has_type :
   forall G1 G2 x e0 t0 e t,
     DTDT.machine_inter.value G1 e0 ->
@@ -1759,55 +2192,570 @@ Lemma subst_base_has_type :
     has_type_pure G1 e0 (essential_type t0) ->
     has_type G1 e0 t0 ->
     ctx_subst x e0 G1 = G1 ->
+    free_exp_vars e0 = [] ->
     has_type (ctx_add_var (add_ctx G2 G1) x t0 e0) e t ->
     has_type (add_ctx (ctx_subst x e0 G2) G1) (expr_subst x e0 e) (ty_subst x e0 t).
-Admitted.
+Proof.
+  intros G1 G2 x e0 t0 e t Hv0 Hbeta0 Hpure0 Hty0 Hctx Hclosed Hty.
+  assert (Hpure_ctx : has_type_pure (ctx_subst x e0 (add_ctx G2 G1)) e0 (essential_type t0)).
+  { rewrite ctx_subst_add_ctx.
+    rewrite Hctx.
+    apply weakening_has_type_pure_right.
+    exact Hpure0. }
+  pose proof (subst_base_has_type_ctx (add_ctx G2 G1) x e0 t0 e t Hbeta0 Hpure_ctx Hclosed Hty) as Hty'.
+  rewrite ctx_subst_add_ctx in Hty'.
+  rewrite Hctx in Hty'.
+  exact Hty'.
+Qed.
 
 (* ==================== PAPER LEMMA 7 ====================
    Non-base substitution preserves typing judgments. *)
 Lemma subst_nonbase_has_type_pure :
   forall G1 G2 x v t0 e t,
-    [| t0 |] <> TBase BBool ->
+    essential_type_is_base_type t0 = false ->
     has_type_pure (ctx_add_var (add_ctx G2 G1) x t0 v) e t ->
     has_type_pure (add_ctx G2 G1) (expr_subst x v e) t.
-Admitted.
+Proof.
+  intros G1 G2 x v t0 e t Hnb Hpure.
+  induction Hpure.
+  - destruct (String.eq_dec x0 x) as [-> | Hneq].
+    + unfold var_ctx_lookup, ctx_add_var in H.
+      simpl in H.
+      apply lookup_insert_Some in H.
+      destruct H as [Hcase | Hcase].
+      * destruct Hcase as [_ Hbind].
+        inversion Hbind; subst.
+        pose proof (bool_prop_eq_true _ H0) as Hbt.
+        rewrite Hnb in Hbt.
+        discriminate.
+      * destruct Hcase as [Hneq' _].
+        contradiction.
+    + simpl.
+      destruct (String.eqb x x0) eqn:Heq.
+      * apply String.eqb_eq in Heq. subst x0. contradiction.
+      * eapply PVar.
+        -- eapply lookup_lemma_var_added_ne; eauto.
+        -- exact H0.
+  - simpl. apply PNat.
+  - simpl. apply PBool.
+  - simpl. apply PString.
+  - simpl. apply PUnit.
+  - simpl. eapply PConst; eauto.
+  - simpl. eapply PApp; eauto.
+  - simpl. apply PNot. exact IHHpure.
+  - simpl. apply PImp; assumption.
+  - simpl. apply PAnd; assumption.
+  - simpl. apply POr; assumption.
+  - simpl. eapply PEq; eauto.
+  - simpl. apply PPlus; assumption.
+Qed.
+
+Lemma subst_nonbase_pure_id :
+  forall C x v t0 e t,
+    essential_type_is_base_type t0 = false ->
+    has_type_pure (ctx_add_var C x t0 v) e t ->
+    expr_subst x v e = e.
+Proof.
+  intros C x v t0 e t Hnb Hpure.
+  induction Hpure.
+  - destruct (String.eq_dec x0 x) as [-> | Hneq].
+    + unfold var_ctx_lookup, ctx_add_var in H.
+      simpl in H.
+      apply lookup_insert_Some in H.
+      destruct H as [Hcase | Hcase].
+      * destruct Hcase as [_ Hbind].
+        inversion Hbind; subst.
+        pose proof (bool_prop_eq_true _ H0) as Hbt.
+        rewrite Hnb in Hbt.
+        discriminate.
+      * destruct Hcase as [Hneq' _].
+        contradiction.
+    + simpl.
+      destruct (String.eqb x x0) eqn:Heq.
+      * apply String.eqb_eq in Heq. subst x0. contradiction.
+      * reflexivity.
+  - reflexivity.
+  - reflexivity.
+  - reflexivity.
+  - reflexivity.
+  - reflexivity.
+  - simpl. rewrite IHHpure1, IHHpure2; reflexivity.
+  - simpl. rewrite IHHpure; reflexivity.
+  - simpl. rewrite IHHpure1, IHHpure2; reflexivity.
+  - simpl. rewrite IHHpure1, IHHpure2; reflexivity.
+  - simpl. rewrite IHHpure1, IHHpure2; reflexivity.
+  - simpl. rewrite IHHpure1, IHHpure2; reflexivity.
+  - simpl. rewrite IHHpure1, IHHpure2; reflexivity.
+Qed.
+
+Lemma subst_nonbase_has_type_pure_ctx :
+  forall C x v t0 e t,
+    essential_type_is_base_type t0 = false ->
+    has_type_pure (ctx_add_var C x t0 v) e t ->
+    has_type_pure C (expr_subst x v e) t.
+Proof.
+  intros C x v t0 e t Hnb Hpure.
+  rewrite <- (add_ctx_empty_r C) in Hpure |- *.
+  exact (subst_nonbase_has_type_pure C empty_ctx x v t0 e t Hnb Hpure).
+Qed.
+
+Lemma subst_nonbase_ty_valid_ctx :
+  forall x v t0,
+    essential_type_is_base_type t0 = false ->
+    forall C t,
+      ty_valid (ctx_add_var C x t0 v) t ->
+      ty_valid C t.
+Proof.
+  intros x v t0 Hnb.
+  fix IH 3.
+  intros C t Hvalid.
+  destruct Hvalid as
+    [tb
+    | var tb e witness Hp
+    | t1 t2 Hv1 Hv2
+    | var t1 t2 witness Hv1 Hv2
+    | t1 t2 Hv1 Hv2
+    | t Hv].
+  - apply VBase.
+  - destruct (String.eq_dec var x) as [-> | Hneq].
+    + eapply VSet.
+      rewrite ctx_add_var_shadow in Hp.
+      exact Hp.
+    + eapply VSet.
+      rewrite ctx_add_var_swap in Hp by congruence.
+      pose proof (subst_nonbase_has_type_pure_ctx
+        (ctx_add_var C var (TBase tb) witness) x v t0 e (TBase BBool) Hnb Hp) as Hp'.
+      rewrite (subst_nonbase_pure_id
+        (ctx_add_var C var (TBase tb) witness) x v t0 e (TBase BBool) Hnb Hp) in Hp'.
+      exact Hp'.
+  - apply VFun.
+    + exact (IH C _ Hv1).
+    + exact (IH C _ Hv2).
+  - destruct (String.eq_dec var x) as [-> | Hneq].
+    + eapply VFunDep.
+      * exact (IH C _ Hv1).
+      * rewrite ctx_add_var_shadow in Hv2.
+        exact Hv2.
+    + eapply VFunDep.
+      * exact (IH C _ Hv1).
+      * rewrite ctx_add_var_swap in Hv2 by congruence.
+        exact (IH (ctx_add_var C var t1 witness) _ Hv2).
+  - apply VPair.
+    + exact (IH C _ Hv1).
+    + exact (IH C _ Hv2).
+  - apply VRef.
+    exact (IH C _ Hv).
+Qed.
 
 Lemma subst_nonbase_ty_valid :
   forall G1 G2 x v t0 t,
-    [| t0 |] <> TBase BBool ->
+    essential_type_is_base_type t0 = false ->
     ty_valid (ctx_add_var (add_ctx G2 G1) x t0 v) t ->
     ty_valid (add_ctx G2 G1) t.
-Admitted.
+Proof.
+  intros G1 G2 x v t0 t Hnb Hvalid.
+  exact (subst_nonbase_ty_valid_ctx x v t0 Hnb (add_ctx G2 G1) t Hvalid).
+Qed.
+
+Lemma has_type_pure_change_var_witness :
+  forall (C : ctx) (y : string) (t : i_ty) (w_old w_new e : i_expr) (ty : i_ty),
+    has_type_pure (ctx_add_var C y t w_old) e ty ->
+    has_type_pure (ctx_add_var C y t w_new) e ty.
+Proof.
+  intros C y t w_old w_new e ty Hpure.
+  induction Hpure as
+    [x tyb e0 Hlookup Hbeta
+    | n
+    | b
+    | s
+    | u
+    | c tyc ec Hlookupc Hsimple
+    | e1 e2 t1 t2 Hbeta1 Hty1 IH1 Hty2 IH2
+    | b Hty IH
+    | b1 b2 Hty1 IH1 Hty2 IH2
+    | b1 b2 Hty1 IH1 Hty2 IH2
+    | b1 b2 Hty1 IH1 Hty2 IH2
+    | e1 e2 tb Hty1 IH1 Hty2 IH2
+    | n1 n2 Hty1 IH1 Hty2 IH2].
+  - destruct (String.eq_dec x y) as [Heq | Hneq].
+    + subst x.
+      unfold var_ctx_lookup, ctx_add_var in Hlookup. simpl in Hlookup.
+      apply lookup_insert_Some in Hlookup.
+      destruct Hlookup as [Hcase | Hcase].
+      * destruct Hcase as [_ Hentry].
+        assert (Hbeta_t : Is_true (essential_type_is_base_type t)).
+        { pose proof (bool_prop_eq_true _ Hbeta) as Hbeta_eq.
+          inversion Hentry; subst.
+          rewrite Hbeta_eq.
+          exact I. }
+        assert (Ht : t = tyb).
+        { inversion Hentry; reflexivity. }
+        assert (Hlookup_new : var_ctx_lookup (ctx_add_var C y t w_new) y = Some (t, w_new)).
+        { unfold var_ctx_lookup, ctx_add_var. simpl. apply lookup_insert. }
+        rewrite <- Ht.
+        exact (@PVar (ctx_add_var C y t w_new) y t w_new Hlookup_new Hbeta_t).
+      * destruct Hcase as [Hneq' _].
+        contradiction.
+    + assert (Hlookup_new : var_ctx_lookup (ctx_add_var C y t w_new) x = Some (tyb, e0)).
+      { unfold var_ctx_lookup, ctx_add_var in *. simpl in *.
+        assert (Hyx : y <> x) by congruence.
+        rewrite (lookup_insert_ne (fst (fst C)) y x (t, w_new) Hyx).
+        rewrite (lookup_insert_ne (fst (fst C)) y x (t, w_old) Hyx) in Hlookup.
+        exact Hlookup. }
+      exact (@PVar (ctx_add_var C y t w_new) x tyb e0 Hlookup_new Hbeta).
+  - apply PNat.
+  - apply PBool.
+  - apply PString.
+  - apply PUnit.
+  - eapply PConst; eauto.
+  - eapply PApp; eauto.
+  - eapply PNot; eauto.
+  - eapply PImp; eauto.
+  - eapply PAnd; eauto.
+  - eapply POr; eauto.
+  - eapply PEq; eauto.
+  - eapply PPlus; eauto.
+Qed.
+
+Lemma ty_valid_set_pred :
+  forall C var tb e w,
+    ty_valid C (TSet var tb e) ->
+    has_type_pure (ctx_add_var C var (TBase tb) w) e (TBase BBool).
+Proof.
+  intros C var tb e w Hvalid.
+  inversion Hvalid; subst; clear Hvalid.
+  match goal with
+  | Hp : has_type_pure (ctx_add_var C var (TBase tb) ?w_old) e (TBase BBool) |- _ =>
+      exact (has_type_pure_change_var_witness C var (TBase tb) w_old w e (TBase BBool) Hp)
+  end.
+Qed.
+
+Lemma subst_nonbase_entails_ctx :
+  forall C x v t0 e,
+    essential_type_is_base_type t0 = false ->
+    has_type_pure (ctx_add_var C x t0 v) e (TBase BBool) ->
+    entails (ctx_add_var C x t0 v) e ->
+    entails C e.
+Proof.
+  intros C x v t0 e Hnb Hpure Hent.
+  pose proof (subst_nonbase_pure_id C x v t0 e (TBase BBool) Hnb Hpure) as Hid.
+  assert (Hent' : entails (ctx_add_var (add_ctx empty_ctx C) x t0 v) e).
+  { rewrite add_ctx_empty_r. exact Hent. }
+  pose proof (entails_drop_unused C empty_ctx x t0 v e Hent' eq_refl Hid) as Hdrop.
+  rewrite add_ctx_empty_r in Hdrop.
+  exact Hdrop.
+Qed.
+
+Lemma subst_nonbase_subtype_ctx :
+  forall x v t0,
+    essential_type_is_base_type t0 = false ->
+    forall C t1 t2,
+      subtype (ctx_add_var C x t0 v) t1 t2 ->
+      subtype C t1 t2.
+Proof.
+  intros x v t0 Hnb.
+  fix IH 4.
+  intros C t1 t2 Hsub.
+  destruct Hsub as
+    [b
+    | var tb e1 e2 c Hv1 Hv2 Hent
+    | var tb e Hv Hent
+    | var tb e c Hv Hent
+    | t_dom t_dom' t_cod t_cod' Hs1 Hs2
+    | var t_dom t_dom' t_cod t_cod' w Hs1 Hs2
+    | t1a t1b t2a t2b Hs1 Hs2
+    | t_left t_right Hs1 Hs2].
+  - apply SBase.
+  - eapply SSet.
+    + exact (subst_nonbase_ty_valid_ctx x v t0 Hnb C _ Hv1).
+    + exact (subst_nonbase_ty_valid_ctx x v t0 Hnb C _ Hv2).
+    + destruct (String.eq_dec var x) as [-> | Hneq].
+      * rewrite ctx_add_var_shadow in Hent.
+        exact Hent.
+      * rewrite ctx_add_var_swap in Hent by congruence.
+        eapply subst_nonbase_entails_ctx.
+        -- exact Hnb.
+        -- apply PImp.
+           ++ pose proof (ty_valid_set_pred (ctx_add_var C x t0 v) var tb e1 (make_expr tb c) Hv1) as Hp1.
+              rewrite ctx_add_var_swap in Hp1 by congruence.
+              exact Hp1.
+           ++ pose proof (ty_valid_set_pred (ctx_add_var C x t0 v) var tb e2 (make_expr tb c) Hv2) as Hp2.
+              rewrite ctx_add_var_swap in Hp2 by congruence.
+              exact Hp2.
+        -- exact Hent.
+  - eapply SSetBase.
+    exact (subst_nonbase_ty_valid_ctx x v t0 Hnb C _ Hv).
+  - eapply SBaseSet.
+    + exact (subst_nonbase_ty_valid_ctx x v t0 Hnb C _ Hv).
+    + destruct (String.eq_dec var x) as [-> | Hneq].
+      * rewrite ctx_add_var_shadow in Hent.
+        exact Hent.
+      * rewrite ctx_add_var_swap in Hent by congruence.
+        eapply subst_nonbase_entails_ctx.
+        -- exact Hnb.
+        -- pose proof (ty_valid_set_pred (ctx_add_var C x t0 v) var tb e (make_expr tb c) Hv) as Hp.
+           rewrite ctx_add_var_swap in Hp by congruence.
+           exact Hp.
+        -- exact Hent.
+  - eapply SFun.
+    + exact (IH C _ _ Hs1).
+    + exact (IH C _ _ Hs2).
+  - eapply SFunDep.
+    + exact (IH C _ _ Hs1).
+    + destruct (String.eq_dec var x) as [-> | Hneq].
+      * rewrite ctx_add_var_shadow in Hs2.
+        exact Hs2.
+      * rewrite ctx_add_var_swap in Hs2 by congruence.
+        exact (IH (ctx_add_var C var t_dom' w) _ _ Hs2).
+  - eapply SPair.
+    + exact (IH C _ _ Hs1).
+    + exact (IH C _ _ Hs2).
+  - eapply SRef.
+    + exact (IH C _ _ Hs1).
+    + exact (IH C _ _ Hs2).
+Qed.
 
 Lemma subst_nonbase_subtype :
   forall G1 G2 x v t0 t1 t2,
-    [| t0 |] <> TBase BBool ->
+    essential_type_is_base_type t0 = false ->
     subtype (ctx_add_var (add_ctx G2 G1) x t0 v) t1 t2 ->
     subtype (add_ctx G2 G1) t1 t2.
-Admitted.
+Proof.
+  intros G1 G2 x v t0 t1 t2 Hnb Hsub.
+  exact (subst_nonbase_subtype_ctx x v t0 Hnb (add_ctx G2 G1) t1 t2 Hsub).
+Qed.
+
+Inductive no_if_binder_shadow (x : string) :
+  forall G e t, has_type G e t -> Prop :=
+| NString :
+    forall G s,
+      no_if_binder_shadow x _ _ _ (TString G s)
+| NNat :
+    forall G n,
+      no_if_binder_shadow x _ _ _ (TNat G n)
+| NBool :
+    forall G b,
+      no_if_binder_shadow x _ _ _ (TBool G b)
+| NUnit :
+    forall G u,
+      no_if_binder_shadow x _ _ _ (TUnit G u)
+| NConst :
+    forall G c t e Hlookup,
+      no_if_binder_shadow x _ _ _ (TConst G c t e Hlookup)
+| NVar :
+    forall G v t e Hlookup,
+      no_if_binder_shadow x _ _ _ (TVar G v t e Hlookup)
+| NEssentialVar :
+    forall G v t e Hlookup Hbeta,
+      no_if_binder_shadow x _ _ _ (TEssentialVar G v t e Hlookup Hbeta)
+| NLoc :
+    forall G l t v Hlookup,
+      no_if_binder_shadow x _ _ _ (TLoc G l t v Hlookup)
+| NFail :
+    forall G t Hvalid,
+      no_if_binder_shadow x _ _ _ (TFail G t Hvalid)
+| NFun :
+    forall G f y t1 t2 body Hvalid Hbody,
+      no_if_binder_shadow x _ _ _ Hbody ->
+      no_if_binder_shadow x _ _ _ (TFun G f y t1 t2 body Hvalid Hbody)
+| NAppPure :
+    forall G e1 e2 y t1 t2 Harg Hpure Hfun,
+      no_if_binder_shadow x _ _ _ Harg ->
+      no_if_binder_shadow x _ _ _ Hfun ->
+      no_if_binder_shadow x _ _ _ (TAppPure G e1 e2 y t1 t2 Harg Hpure Hfun)
+| NAppImPure :
+    forall G e1 e2 t1 t2 Harg Hfun,
+      no_if_binder_shadow x _ _ _ Harg ->
+      no_if_binder_shadow x _ _ _ Hfun ->
+      no_if_binder_shadow x _ _ _ (TAppImPure G e1 e2 t1 t2 Harg Hfun)
+| NPlus :
+    forall G e1 e2 Hty1 Hty2,
+      no_if_binder_shadow x _ _ _ Hty1 ->
+      no_if_binder_shadow x _ _ _ Hty2 ->
+      no_if_binder_shadow x _ _ _ (TPlus G e1 e2 Hty1 Hty2)
+| NNot :
+    forall G e Hty,
+      no_if_binder_shadow x _ _ _ Hty ->
+      no_if_binder_shadow x _ _ _ (TNot G e Hty)
+| NImp :
+    forall G e1 e2 Hty1 Hty2,
+      no_if_binder_shadow x _ _ _ Hty1 ->
+      no_if_binder_shadow x _ _ _ Hty2 ->
+      no_if_binder_shadow x _ _ _ (TImp G e1 e2 Hty1 Hty2)
+| NAnd :
+    forall G e1 e2 Hty1 Hty2,
+      no_if_binder_shadow x _ _ _ Hty1 ->
+      no_if_binder_shadow x _ _ _ Hty2 ->
+      no_if_binder_shadow x _ _ _ (TAnd G e1 e2 Hty1 Hty2)
+| NOr :
+    forall G e1 e2 Hty1 Hty2,
+      no_if_binder_shadow x _ _ _ Hty1 ->
+      no_if_binder_shadow x _ _ _ Hty2 ->
+      no_if_binder_shadow x _ _ _ (TOr G e1 e2 Hty1 Hty2)
+| NEq :
+    forall G e1 e2 tb Hty1 Hty2,
+      no_if_binder_shadow x _ _ _ Hty1 ->
+      no_if_binder_shadow x _ _ _ Hty2 ->
+      no_if_binder_shadow x _ _ _ (TEq G e1 e2 tb Hty1 Hty2)
+| NRefI :
+    forall G t e Hvalid Hty,
+      no_if_binder_shadow x _ _ _ Hty ->
+      no_if_binder_shadow x _ _ _ (TRefI G t e Hvalid Hty)
+| NGet :
+    forall G e t Hty,
+      no_if_binder_shadow x _ _ _ Hty ->
+      no_if_binder_shadow x _ _ _ (TGet G e t Hty)
+| NSetI :
+    forall G e1 e2 t Hty1 Hty2,
+      no_if_binder_shadow x _ _ _ Hty1 ->
+      no_if_binder_shadow x _ _ _ Hty2 ->
+      no_if_binder_shadow x _ _ _ (TSetI G e1 e2 t Hty1 Hty2)
+| NPair :
+    forall G e1 e2 t1 t2 Hty1 Hty2,
+      no_if_binder_shadow x _ _ _ Hty1 ->
+      no_if_binder_shadow x _ _ _ Hty2 ->
+      no_if_binder_shadow x _ _ _ (TPair G e1 e2 t1 t2 Hty1 Hty2)
+| NFst :
+    forall G e t1 t2 Hty,
+      no_if_binder_shadow x _ _ _ Hty ->
+      no_if_binder_shadow x _ _ _ (TFst G e t1 t2 Hty)
+| NSnd :
+    forall G e t1 t2 Hty,
+      no_if_binder_shadow x _ _ _ Hty ->
+      no_if_binder_shadow x _ _ _ (TSnd G e t1 t2 Hty)
+| NIf :
+    forall G e e1 e2 t u Hpure Hty1 Hty2,
+      u <> x ->
+      no_if_binder_shadow x _ _ _ Hty1 ->
+      no_if_binder_shadow x _ _ _ Hty2 ->
+      no_if_binder_shadow x _ _ _ (TIf G e e1 e2 t u Hpure Hty1 Hty2)
+| NSelf :
+    forall G e t Hty Hpure,
+      no_if_binder_shadow x _ _ _ Hty ->
+      no_if_binder_shadow x _ _ _ (TSelf G e t Hty Hpure)
+| NSub :
+    forall G e t t' Hty Hsub,
+      no_if_binder_shadow x _ _ _ Hty ->
+      no_if_binder_shadow x _ _ _ (TSub G e t t' Hty Hsub).
+
+Lemma has_type_pure_empty_ctx_base :
+  forall e t,
+    has_type_pure empty_ctx e t ->
+    β[ t ].
+Proof.
+  intros e t Hpure.
+  induction Hpure.
+  - unfold var_ctx_lookup, empty_ctx in H.
+    simpl in H.
+    discriminate.
+  - simpl. exact I.
+  - simpl. exact I.
+  - simpl. exact I.
+  - simpl. exact I.
+  - unfold const_ctx_lookup, empty_ctx in H.
+    simpl in H.
+    discriminate.
+  - simpl in IHHpure1.
+    contradiction.
+  - simpl. exact I.
+  - simpl. exact I.
+  - simpl. exact I.
+  - simpl. exact I.
+  - simpl. exact I.
+  - simpl. exact I.
+Qed.
 
 Lemma subst_nonbase_has_type :
   forall G1 G2 x v t0 e t,
-    [| t0 |] <> TBase BBool ->
-    DTDT.machine_inter.value empty_ctx v ->
-    has_type (ctx_add_var (add_ctx G2 G1) x t0 v) e t ->
-    has_type (add_ctx G2 G1) (expr_subst x v e) t.
-Admitted.
+    essential_type_is_base_type t0 = false ->
+    has_type_pure empty_ctx v t0 ->
+    forall Hty : has_type (ctx_add_var (add_ctx G2 G1) x t0 v) e t,
+      no_if_binder_shadow x _ _ _ Hty ->
+      has_type (add_ctx G2 G1) (expr_subst x v e) t.
+Proof.
+  intros G1 G2 x v t0 e t Hnb Hpure Hty _.
+  pose proof (has_type_pure_empty_ctx_base v t0 Hpure) as Hbase.
+  pose proof (bool_prop_eq_true _ Hbase) as Hbase_eq.
+  rewrite Hnb in Hbase_eq.
+  discriminate.
+Qed.
+
+Lemma subtype_refl :
+  forall G t,
+    ty_valid G t ->
+    subtype G t t.
+Proof.
+  intros G t Hvalid.
+  induction Hvalid.
+  - apply SBase.
+  - destruct τb.
+    + eapply SSet with (c := EmptyString).
+      * eapply VSet. exact H.
+      * eapply VSet. exact H.
+      * apply entails_imp_refl.
+    + eapply SSet with (c := true).
+      * eapply VSet. exact H.
+      * eapply VSet. exact H.
+      * apply entails_imp_refl.
+    + eapply SSet with (c := 0).
+      * eapply VSet. exact H.
+      * eapply VSet. exact H.
+      * apply entails_imp_refl.
+    + eapply SSet with (c := tt).
+      * eapply VSet. exact H.
+      * eapply VSet. exact H.
+      * apply entails_imp_refl.
+  - apply SFun; assumption.
+  - eapply SFunDep.
+    + exact IHHvalid1.
+    + exact IHHvalid2.
+  - apply SPair; assumption.
+  - eapply SRef.
+    + exact IHHvalid.
+    + exact IHHvalid.
+Qed.
 
 Lemma inversion_fix :
-  forall G f x t1 t2 body t3 t4,
-    has_type G (EFix f x t1 t2 body) (TArrDep x t3 t4) ->
-    subtype G t3 t1 /\
-    subtype (ctx_add_var G x t3 (EVar x)) t2 t4 /\
+  forall G f x t1 t2 body t,
+    has_type G (EFix f x t1 t2 body) t ->
     has_type G (EFix f x t1 t2 body) (TArrDep x t1 t2) /\
-    has_type (ctx_add_const G f (TArrDep x t1 t2) (EFix f x t1 t2 body)) body t2.
-Admitted.
+    has_type
+      (ctx_add_var
+        (ctx_add_const G f (TArrDep x t1 t2) (EFix f x t1 t2 body))
+        x t1 (EVar x))
+      body t2.
+Proof.
+  intros G f x t1 t2 body t Hty.
+  remember (EFix f x t1 t2 body) as ef eqn:Heqef.
+  revert f x t1 t2 body Heqef.
+  induction Hty; intros f0 x0 t10 t20 body0 Heqef; inversion Heqef; subst; try discriminate.
+  - split.
+    + eapply TFun; eauto.
+    + exact Hty.
+  - exact (IHHty _ _ _ _ _ eq_refl).
+  - exact (IHHty _ _ _ _ _ eq_refl).
+Qed.
 
 Lemma inversion_pair :
   forall G e1 e2 t1 t2,
     has_type G (EPair e1 e2) (TProd t1 t2) ->
     has_type G e1 t1 /\ has_type G e2 t2.
-Admitted.
+Proof.
+  intros G e1 e2 t1 t2 Hty.
+  remember (EPair e1 e2) as ep eqn:Heqep.
+  remember (TProd t1 t2) as tp eqn:Heqtp.
+  revert e1 e2 t1 t2 Heqep Heqtp.
+  induction Hty; intros e1' e2' t1' t2' Heqep Heqtp; inversion Heqep; subst; try discriminate.
+  - inversion Heqtp; subst.
+    split; assumption.
+  - apply self_pair_inv in Heqtp.
+    inversion Heqtp; subst.
+    exact (IHHty _ _ _ _ eq_refl eq_refl).
+  - inversion H; subst; try discriminate.
+    specialize (IHHty _ _ _ _ eq_refl eq_refl) as [Hleft Hright].
+    split; eapply TSub; eauto.
+Qed.
+
 
 (* ==================== PAPER LEMMA 10 ====================
    Step lemmas relating one machine step to preservation side conditions. *)
@@ -1833,14 +2781,14 @@ Lemma step_lemma_bool_entails :
   forall G1 G2 u e e' e1,
     step (empty_ctx, e) (empty_ctx, e') ->
     has_type_pure empty_ctx e (TBase BBool) ->
-    (entails (ctx_add_var (add_ctx G2 G1) u (TBase BBool) e) e1 <->
-     entails (ctx_add_var (add_ctx G2 G1) u (TBase BBool) e') e1).
+    (entails (ctx_add_var (add_ctx G2 G1) u (TSet u BBool e) (EBool true)) e1 <->
+     entails (ctx_add_var (add_ctx G2 G1) u (TSet u BBool e') (EBool true)) e1).
 Admitted.
 
 Lemma step_lemma_bool_typing :
   forall G1 G2 u e e' e1 t1,
     step (empty_ctx, e) (empty_ctx, e') ->
     has_type_pure empty_ctx e (TBase BBool) ->
-    (has_type (ctx_add_var (add_ctx G2 G1) u (TBase BBool) e) e1 t1 <->
-     has_type (ctx_add_var (add_ctx G2 G1) u (TBase BBool) e') e1 t1).
+    (has_type (ctx_add_var (add_ctx G2 G1) u (TSet u BBool e) (EBool true)) e1 t1 <->
+     has_type (ctx_add_var (add_ctx G2 G1) u (TSet u BBool e') (EBool true)) e1 t1).
 Admitted.

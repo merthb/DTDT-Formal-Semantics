@@ -293,9 +293,9 @@ Inductive has_type
       ty_valid Γ τ ->
       has_type Γ EFail τ
   | TFun :
-    forall f x τ₁ τ₂ e exp,
+    forall f x τ₁ τ₂ e,
       ty_valid Γ (TArrDep x τ₁ τ₂) ->
-      has_type ((Γ ,,c f ↦ (TArrDep x τ₁ τ₂, exp)) ,,v x ↦ (τ₁, EVar x)) e τ₂ ->
+      has_type ((Γ ,,c f ↦ (TArrDep x τ₁ τ₂, EFix f x τ₁ τ₂ e)) ,,v x ↦ (τ₁, EVar x)) e τ₂ ->
       has_type Γ (EFix f x τ₁ τ₂ e) (TArrDep x τ₁ τ₂)
   | TAppPure :
     forall e₁ e₂ x τ₁ τ₂,
