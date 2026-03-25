@@ -635,6 +635,27 @@ Proof.
     + exact (IHHpure2 Hin).
 Qed.
 
+Lemma has_type_pure_empty_ctx_closed :
+  forall e t,
+    has_type_pure empty_ctx e t ->
+    free_exp_vars e = [].
+Proof.
+  intros e t Hpure.
+  remember (free_exp_vars e) as fvs eqn:Hfv.
+  destruct fvs.
+  - reflexivity.
+  - exfalso.
+    assert (Hin : List.In s (free_exp_vars e)).
+    { rewrite <- Hfv. simpl. auto. }
+    pose proof (free_var_pure_is_base_typed empty_ctx e t s Hpure Hin) as Hlookupx.
+    destruct Hlookupx as [tx Hlookupx].
+    destruct Hlookupx as [val_x Hlookupx].
+    destruct Hlookupx as [Hlookup Hbeta].
+    unfold var_ctx_lookup, empty_ctx in Hlookup.
+    simpl in Hlookup.
+    discriminate.
+Qed.
+
 (* Paper Lemma 2, valid-type clause.
    If Γ ⊢valid τ and x ∈ FV(τ), then x is assigned a base essential type in Γ. *)
 Lemma free_var_valid_type_is_base_typed :
@@ -2459,7 +2480,7 @@ Proof.
   destruct Hsub as
     [b
     | var tb e1 e2 c Hv1 Hv2 Hent
-    | var tb e Hv Hent
+    | var tb e Hv
     | var tb e c Hv Hent
     | t_dom t_dom' t_cod t_cod' Hs1 Hs2
     | var t_dom t_dom' t_cod t_cod' w Hs1 Hs2
@@ -2665,6 +2686,21 @@ Proof.
   - simpl. exact I.
 Qed.
 
+Lemma has_type_pure_empty_ctx_app_absurd :
+  forall e1 e2 t,
+    has_type_pure empty_ctx (EApp e1 e2) t ->
+    False.
+Proof.
+  intros e1 e2 t Hpure.
+  inversion Hpure; subst.
+  match goal with
+  | Hfun : has_type_pure empty_ctx _ (TArr _ _) |- _ =>
+      pose proof (has_type_pure_empty_ctx_base _ _ Hfun) as Hbase;
+      simpl in Hbase;
+      contradiction
+  end.
+Qed.
+
 Lemma subst_nonbase_has_type :
   forall G1 G2 x v t0 e t,
     essential_type_is_base_type t0 = false ->
@@ -2759,6 +2795,118 @@ Qed.
 
 (* ==================== PAPER LEMMA 10 ====================
    Step lemmas relating one machine step to preservation side conditions. *)
+Lemma eval_trans :
+  forall sigma1 sigma2 sigma3,
+    eval sigma1 sigma2 ->
+    eval sigma2 sigma3 ->
+    eval sigma1 sigma3.
+Proof.
+  intros sigma1 sigma2 sigma3 Heval12 Heval23.
+  induction Heval12.
+  - exact Heval23.
+  - eapply steps_step.
+    + exact H.
+    + exact (IHHeval12 Heval23).
+Qed.
+
+Lemma eval_plug :
+  forall E sigma1 sigma2,
+    eval sigma1 sigma2 ->
+    eval (fst sigma1, plug E (snd sigma1)) (fst sigma2, plug E (snd sigma2)).
+Proof.
+  intros E sigma1 sigma2 Heval.
+  induction Heval as [sigma | sigma1 sigma2 sigma3 Hstep Heval23 IH].
+  - destruct sigma as [G e].
+    apply steps_refl.
+  - destruct sigma1 as [G1 e1].
+    destruct sigma2 as [G2 e2].
+    destruct sigma3 as [G3 e3].
+    simpl in *.
+    eapply steps_step.
+    + eapply StepCtx.
+      exact Hstep.
+    + exact IH.
+Qed.
+
+Lemma pure_subst_step_eval :
+  forall G x e e' pred t,
+    step (G, e) (G, e') ->
+    has_type_pure (ctx_add_var G x t e) pred (TBase BBool) ->
+    eval (G, expr_subst x e pred) (G, expr_subst x e' pred).
+Proof.
+  intros G x e e' pred t Hstep Hpure.
+  induction Hpure; simpl.
+  - destruct (String.eq_dec x0 x) as [-> | Hneq].
+    + destruct (String.eqb_spec x x) as [_ | Hcontra].
+      * eapply steps_step.
+        -- exact Hstep.
+        -- apply steps_refl.
+      * contradiction.
+    + destruct (String.eqb_spec x x0) as [Heq | _].
+      * congruence.
+      * apply steps_refl.
+  - apply steps_refl.
+  - apply steps_refl.
+  - apply steps_refl.
+  - apply steps_refl.
+  - apply steps_refl.
+  - lazymatch goal with
+    | |- eval (G, EApp ?l1 ?r1) (G, EApp ?l2 ?r2) =>
+        eapply eval_trans with (sigma2 := (G, EApp l2 r1));
+        [ exact (eval_plug (ECAppL ECHole r1) (G, l1) (G, l2) IHHpure1)
+        | exact (eval_plug (ECAppR l2 ECHole) (G, r1) (G, r2) IHHpure2) ]
+    end.
+  - exact (eval_plug (ECNot ECHole) (G, expr_subst x e b) (G, expr_subst x e' b) IHHpure).
+  - lazymatch goal with
+    | |- eval (G, EImp ?l1 ?r1) (G, EImp ?l2 ?r2) =>
+        eapply eval_trans with (sigma2 := (G, EImp l2 r1));
+        [ exact (eval_plug (ECImpL ECHole r1) (G, l1) (G, l2) IHHpure1)
+        | exact (eval_plug (ECImpR l2 ECHole) (G, r1) (G, r2) IHHpure2) ]
+    end.
+  - lazymatch goal with
+    | |- eval (G, EAnd ?l1 ?r1) (G, EAnd ?l2 ?r2) =>
+        eapply eval_trans with (sigma2 := (G, EAnd l2 r1));
+        [ exact (eval_plug (ECAndL ECHole r1) (G, l1) (G, l2) IHHpure1)
+        | exact (eval_plug (ECAndR l2 ECHole) (G, r1) (G, r2) IHHpure2) ]
+    end.
+  - lazymatch goal with
+    | |- eval (G, EOr ?l1 ?r1) (G, EOr ?l2 ?r2) =>
+        eapply eval_trans with (sigma2 := (G, EOr l2 r1));
+        [ exact (eval_plug (ECOrL ECHole r1) (G, l1) (G, l2) IHHpure1)
+        | exact (eval_plug (ECOrR l2 ECHole) (G, r1) (G, r2) IHHpure2) ]
+    end.
+  - lazymatch goal with
+    | |- eval (G, EEq ?l1 ?r1) (G, EEq ?l2 ?r2) =>
+        eapply eval_trans with (sigma2 := (G, EEq l2 r1));
+        [ exact (eval_plug (ECEqL ECHole r1) (G, l1) (G, l2) IHHpure1)
+        | exact (eval_plug (ECEqR l2 ECHole) (G, r1) (G, r2) IHHpure2) ]
+    end.
+  - lazymatch goal with
+    | |- eval (G, EPlus ?l1 ?r1) (G, EPlus ?l2 ?r2) =>
+        eapply eval_trans with (sigma2 := (G, EPlus l2 r1));
+        [ exact (eval_plug (ECPlusL ECHole r1) (G, l1) (G, l2) IHHpure1)
+        | exact (eval_plug (ECPlusR l2 ECHole) (G, r1) (G, r2) IHHpure2) ]
+    end.
+Qed.
+
+Lemma step_lemma_entails_var :
+  forall G e e' x tb t1 pred,
+    step (G, e) (G, e') ->
+    has_type_pure empty_ctx e (TBase tb) ->
+    [| t1 |] = TBase tb ->
+    has_type_pure (ctx_add_var G x t1 e) pred (TBase BBool) ->
+    entails G (EImp (expr_subst x e' pred) (expr_subst x e pred)).
+Proof.
+  intros G e e' x tb t1 pred Hstep _ _ Hpred.
+  eapply eval_trans with (sigma2 := (G, EImp (expr_subst x e' pred) (expr_subst x e' pred))).
+  - exact (eval_plug
+      (ECImpR (expr_subst x e' pred) ECHole)
+      (G, expr_subst x e pred)
+      (G, expr_subst x e' pred)
+      (pure_subst_step_eval G x e e' pred t1 Hstep Hpred)).
+  - apply entails_imp_refl.
+Qed.
+
 Lemma step_lemma_entails :
   forall G e e' tb t1 pred,
     step (G, e) (G, e') ->
@@ -2766,6 +2914,19 @@ Lemma step_lemma_entails :
     [| t1 |] = TBase tb ->
     has_type_pure (ctx_add_var G "x" t1 e) pred (TBase BBool) ->
     entails G (EImp (expr_subst "x" e' pred) (expr_subst "x" e pred)).
+Proof.
+  intros G e e' tb t1 pred Hstep Hpure Hbase Hpred.
+  exact (step_lemma_entails_var G e e' "x" tb t1 pred Hstep Hpure Hbase Hpred).
+Qed.
+
+Lemma step_lemma_subtype_bidir :
+  forall G e e' x tb t1 t,
+    step (G, e) (G, e') ->
+    has_type_pure empty_ctx e (TBase tb) ->
+    [| t1 |] = TBase tb ->
+    ty_valid (ctx_add_var G x t1 e) t ->
+    subtype G (ty_subst x e' t) (ty_subst x e t) /\
+    subtype G (ty_subst x e t) (ty_subst x e' t).
 Admitted.
 
 Lemma step_lemma_subtype :
@@ -2775,7 +2936,10 @@ Lemma step_lemma_subtype :
     [| t1 |] = TBase tb ->
     ty_valid (ctx_add_var G x t1 e) t ->
     subtype G (ty_subst x e' t) (ty_subst x e t).
-Admitted.
+Proof.
+  intros G e e' x tb t1 t Hstep Hpure Hbase Hvalid.
+  exact (proj1 (step_lemma_subtype_bidir G e e' x tb t1 t Hstep Hpure Hbase Hvalid)).
+Qed.
 
 Lemma step_lemma_bool_entails :
   forall G1 G2 u e e' e1,
@@ -2783,7 +2947,110 @@ Lemma step_lemma_bool_entails :
     has_type_pure empty_ctx e (TBase BBool) ->
     (entails (ctx_add_var (add_ctx G2 G1) u (TSet u BBool e) (EBool true)) e1 <->
      entails (ctx_add_var (add_ctx G2 G1) u (TSet u BBool e') (EBool true)) e1).
-Admitted.
+Proof.
+  intros G1 G2 u e e' e1 _ _.
+  split; intro Hent;
+    eapply subsumption_entails_var_ctx; exact Hent.
+Qed.
+
+Lemma step_lemma_bool_subtype_ctx_left :
+  forall C u e e',
+    step (empty_ctx, e) (empty_ctx, e') ->
+    has_type_pure empty_ctx e (TBase BBool) ->
+    subtype (ctx_add_var C u (TSet u BBool e') (EBool true)) (TSet u BBool e') (TSet u BBool e).
+Proof.
+  intros C u e e' Hstep Hpure.
+  set (x0 := if String.eq_dec u "x" then "y" else "x").
+  assert (Hx0u : x0 <> u).
+  { unfold x0. destruct (String.eq_dec u "x"); congruence. }
+  assert (Hsub0 : subtype empty_ctx (TSet u BBool e') (TSet u BBool e)).
+  {
+    pose proof
+      (step_lemma_subtype
+        empty_ctx e e' x0 BBool (TBase BBool) (TSet u BBool (EVar x0))
+        Hstep Hpure eq_refl) as Hcore.
+    assert (Hvalid :
+      ty_valid (ctx_add_var empty_ctx x0 (TBase BBool) e) (TSet u BBool (EVar x0))).
+    {
+      eapply VSet with (v := EBool true).
+      change (has_type_pure
+        (ctx_add_var (ctx_add_var empty_ctx x0 (TBase BBool) e) u (TBase BBool) (EBool true))
+        (EVar x0) (essential_type (TBase BBool))).
+      eapply PVar.
+      - rewrite ctx_add_var_swap by congruence.
+        unfold var_ctx_lookup, ctx_add_var. simpl.
+        apply lookup_insert.
+      - simpl. exact I.
+    }
+    specialize (Hcore Hvalid).
+    unfold x0 in Hcore.
+    destruct (String.eq_dec u "x") as [Hu | Hu].
+    - subst u. cbn [ty_subst] in Hcore. exact Hcore.
+    - cbn [ty_subst] in Hcore.
+      destruct (String.eqb "x" u) eqn:Heq.
+      + apply String.eqb_eq in Heq. congruence.
+      + exact Hcore.
+  }
+  pose proof (weakening_subtype_right empty_ctx (ctx_add_var C u (TSet u BBool e') (EBool true)) _ _ Hsub0) as Hweak.
+  rewrite add_ctx_empty_l in Hweak.
+  exact Hweak.
+Qed.
+Lemma step_lemma_bool_subtype_ctx_right :
+  forall C u e e',
+    step (empty_ctx, e) (empty_ctx, e') ->
+    has_type_pure empty_ctx e (TBase BBool) ->
+    subtype (ctx_add_var C u (TSet u BBool e) (EBool true)) (TSet u BBool e) (TSet u BBool e').
+Proof.
+  intros C u e e' Hstep Hpure.
+  set (x0 := if String.eq_dec u "x" then "y" else "x").
+  assert (Hx0u : x0 <> u).
+  { unfold x0. destruct (String.eq_dec u "x"); congruence. }
+  assert (Hsub0 : subtype empty_ctx (TSet u BBool e) (TSet u BBool e')).
+  {
+    pose proof
+      (step_lemma_subtype_bidir
+        empty_ctx e e' x0 BBool (TBase BBool) (TSet u BBool (EVar x0))
+        Hstep Hpure eq_refl) as Hcore.
+    assert (Hvalid :
+      ty_valid (ctx_add_var empty_ctx x0 (TBase BBool) e) (TSet u BBool (EVar x0))).
+    {
+      eapply VSet with (v := EBool true).
+      change (has_type_pure
+        (ctx_add_var (ctx_add_var empty_ctx x0 (TBase BBool) e) u (TBase BBool) (EBool true))
+        (EVar x0) (essential_type (TBase BBool))).
+      eapply PVar.
+      - rewrite ctx_add_var_swap by congruence.
+        unfold var_ctx_lookup, ctx_add_var. simpl.
+        apply lookup_insert.
+      - simpl. exact I.
+    }
+    specialize (Hcore Hvalid).
+    destruct Hcore as [_ Hcore].
+    unfold x0 in Hcore.
+    destruct (String.eq_dec u "x") as [Hu | Hu].
+    - subst u. cbn [ty_subst] in Hcore. exact Hcore.
+    - cbn [ty_subst] in Hcore.
+      destruct (String.eqb "x" u) eqn:Heq.
+      + apply String.eqb_eq in Heq. congruence.
+      + exact Hcore.
+  }
+  pose proof (weakening_subtype_right empty_ctx (ctx_add_var C u (TSet u BBool e) (EBool true)) _ _ Hsub0) as Hweak.
+  rewrite add_ctx_empty_l in Hweak.
+  exact Hweak.
+Qed.
+
+Lemma step_lemma_bool_subtype_ctx :
+  forall C u e e',
+    step (empty_ctx, e) (empty_ctx, e') ->
+    has_type_pure empty_ctx e (TBase BBool) ->
+    subtype (ctx_add_var C u (TSet u BBool e') (EBool true)) (TSet u BBool e') (TSet u BBool e) /\
+    subtype (ctx_add_var C u (TSet u BBool e) (EBool true)) (TSet u BBool e) (TSet u BBool e').
+Proof.
+  intros C u e e' Hstep Hpure.
+  split.
+  - exact (step_lemma_bool_subtype_ctx_left C u e e' Hstep Hpure).
+  - exact (step_lemma_bool_subtype_ctx_right C u e e' Hstep Hpure).
+Qed.
 
 Lemma step_lemma_bool_typing :
   forall G1 G2 u e e' e1 t1,
@@ -2791,4 +3058,17 @@ Lemma step_lemma_bool_typing :
     has_type_pure empty_ctx e (TBase BBool) ->
     (has_type (ctx_add_var (add_ctx G2 G1) u (TSet u BBool e) (EBool true)) e1 t1 <->
      has_type (ctx_add_var (add_ctx G2 G1) u (TSet u BBool e') (EBool true)) e1 t1).
-Admitted.
+Proof.
+  intros G1 G2 u e e' e1 t1 Hstep Hpure.
+  split; intro Hty.
+  - eapply (subsumption_has_type_var_ctx u (TSet u BBool e) (TSet u BBool e') (EBool true)).
+    + intros C.
+      destruct (step_lemma_bool_subtype_ctx C u e e' Hstep Hpure) as [Hsub _].
+      exact Hsub.
+    + exact Hty.
+  - eapply (subsumption_has_type_var_ctx u (TSet u BBool e') (TSet u BBool e) (EBool true)).
+    + intros C.
+      destruct (step_lemma_bool_subtype_ctx C u e e' Hstep Hpure) as [_ Hsub].
+      exact Hsub.
+    + exact Hty.
+Qed.
