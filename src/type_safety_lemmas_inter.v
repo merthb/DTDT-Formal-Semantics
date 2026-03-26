@@ -20,17 +20,23 @@ Proof.
     try solve [exfalso; eapply has_type_pure_empty_ctx_app_absurd; exact Hpure].
   - exact (IH _ Hpure).
   - inversion Hpure; subst.
-    apply PPlus.
-    + match goal with
-      | Hsub : has_type_pure empty_ctx (plug E e) (TBase BNat) |- _ => exact (IHE _ Hsub)
-      end.
-    + assumption.
+    eapply PApp.
+    + exact H1.
+    + apply IHE. exact H2.
+    + exact H4.
+  - inversion Hpure; subst.
+    eapply PApp.
+    + exact H1.
+    + exact H2.
+    + apply IHE. exact H4.
   - inversion Hpure; subst.
     apply PPlus.
-    + assumption.
-    + match goal with
-      | Hsub : has_type_pure empty_ctx (plug E e) (TBase BNat) |- _ => exact (IHE _ Hsub)
-      end.
+    + apply IHE. exact H1.
+    + exact H3.
+  - inversion Hpure; subst.
+    apply PPlus.
+    + exact H1.
+    + apply IHE. exact H3.
   - inversion Hpure; subst.
     apply PNot.
     match goal with
@@ -116,10 +122,10 @@ Proof.
   intros sigma1 sigma2 Hstep.
   induction Hstep; intros t Hpure; simpl in *.
   - eapply pure_step_ctx_preservation; eauto.
-  - exfalso. eapply has_type_pure_empty_ctx_app_absurd. exact Hpure.
+  - exfalso. inversion Hpure. inversion H4. subst. discriminate H8.
   - inversion Hpure; subst.
     simpl in H. discriminate.
-  - exfalso. eapply has_type_pure_empty_ctx_app_absurd. exact Hpure.
+  - inversion Hpure. inversion H3; subst.
   - inversion Hpure.
   - inversion Hpure.
   - inversion Hpure.
@@ -208,8 +214,7 @@ Proof.
     reflexivity.
   - exfalso.
     pose proof (has_type_pure_empty_ctx_base _ _ (H (TProd tau1' tau2'))) as Hbeta.
-    simpl in Hbeta.
-    contradiction.
+    simpl in Hbeta. discriminate.
   - inversion H; subst; try discriminate.
     exact (IHHty _ _ eq_refl eq_refl Hv).
 Qed.

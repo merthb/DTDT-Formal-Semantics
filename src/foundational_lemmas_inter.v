@@ -1808,7 +1808,7 @@ Qed.
 
 Lemma subst_base_has_type_pure_gen :
   forall C x e0 t0 e t,
-    essential_type_is_base_type t0 ->
+    β[ t0 ] = true ->
     has_type_pure (ctx_subst x e0 C) e0 (essential_type t0) ->
     has_type_pure (ctx_add_var C x t0 e0) e t ->
     has_type_pure (ctx_subst x e0 C) (expr_subst x e0 e) (ty_subst x e0 t).
@@ -1824,7 +1824,7 @@ Proof.
         inversion Hbind; subst.
         simpl.
         rewrite String.eqb_refl.
-        rewrite ty_subst_essential_type_id by (apply bool_prop_eq_true; exact Hbeta0).
+        rewrite ty_subst_essential_type_id by (exact Hbeta0).
         exact Hpure0.
       * destruct Hcase as [Hneq' _].
         contradiction.
@@ -1877,7 +1877,7 @@ Qed.
 Lemma subst_base_has_type_pure :
   forall G1 G2 x e0 t0 e t,
     DTDT.machine_inter.value G1 e0 ->
-    β[ t0 ] ->
+    β[ t0 ] = true ->
     has_type_pure G1 e0 (essential_type t0) ->
     has_type G1 e0 t0 ->
     ctx_subst x e0 G1 = G1 ->
@@ -1895,7 +1895,7 @@ Proof.
         inversion Hbind; subst.
         simpl.
         rewrite String.eqb_refl.
-        rewrite ty_subst_essential_type_id by (apply bool_prop_eq_true; exact Hbeta0).
+        rewrite ty_subst_essential_type_id by (exact Hbeta0).
         apply weakening_has_type_pure_right.
         exact Hpure0.
       * destruct Hcase as [Hneq' Hlookup].
@@ -1940,7 +1940,7 @@ Qed.
 Lemma subst_base_has_type_pure_shadow :
   forall G1 G2 x e0 t0 tb witness e t,
     DTDT.machine_inter.value G1 e0 ->
-    essential_type_is_base_type t0 ->
+    β[ t0 ] = true ->
     has_type_pure G1 e0 (essential_type t0) ->
     has_type G1 e0 t0 ->
     ctx_subst x e0 G1 = G1 ->
@@ -2010,7 +2010,7 @@ Qed.
 
 Lemma subst_base_has_type_pure_shadow_ctx :
   forall C x e0 t0 t_old witness e t,
-    essential_type_is_base_type t0 = true ->
+    β[ t0 ] = true ->
     has_type_pure (ctx_subst x e0 C) e0 (essential_type t0) ->
     has_type_pure (ctx_add_var C x t_old witness) e t ->
     has_type_pure (ctx_add_var (ctx_subst x e0 C) x (ty_subst x e0 t_old) witness) e t.
@@ -2087,15 +2087,32 @@ Proof.
   - apply PPlus; assumption.
 Qed.
 
-
-
 Lemma subst_base_ty_valid_ctx :
   forall C x e0 t0 t,
-    β[ t0 ] ->
+    β[ t0 ] = true ->
     has_type_pure (ctx_subst x e0 C) e0 (essential_type t0) ->
     free_exp_vars e0 = [] ->
     ty_valid (ctx_add_var C x t0 e0) t ->
     ty_valid (ctx_subst x e0 C) (ty_subst x e0 t).
+Proof.
+  intros.
+  induction H2.
+  - apply VBase.
+  - unfold ty_subst. destruct (String.eq_dec x var); subst.
+    * replace ((var =? var)%string) with true by (symmetry; apply String.eqb_refl).
+      eapply VSet. admit.
+    * apply String.eqb_neq in n. rewrite n.
+      eapply VSet. admit.
+  - apply VFun. fold ty_subst. assumption. fold ty_subst. assumption.
+  - unfold ty_subst. destruct (String.eq_dec x var); subst.
+    * replace ((var =? var)%string) with true by (symmetry; apply String.eqb_refl).
+      fold ty_subst. eapply VFunDep. assumption.
+      admit.
+    * apply String.eqb_neq in n. rewrite n.
+      fold ty_subst. eapply VFunDep. assumption.
+      admit.
+  - apply VPair. fold ty_subst. assumption. fold ty_subst. assumption.
+  - apply VRef. fold ty_subst. assumption.
 Admitted.
 
 (* Paper Lemma 6, validity clause.
@@ -2103,7 +2120,7 @@ Admitted.
 Lemma subst_base_ty_valid :
   forall G1 G2 x e0 t0 t,
     DTDT.machine_inter.value G1 e0 ->
-    β[ t0 ] ->
+    β[ t0 ] = true ->
     has_type_pure G1 e0 (essential_type t0) ->
     has_type G1 e0 t0 ->
     ctx_subst x e0 G1 = G1 ->
@@ -2125,11 +2142,38 @@ Qed.
 
 Lemma subst_base_subtype_ctx :
   forall C x e0 t0 t1 t2,
-    β[ t0 ] ->
+    β[ t0 ] = true ->
     has_type_pure (ctx_subst x e0 C) e0 (essential_type t0) ->
     free_exp_vars e0 = [] ->
     subtype (ctx_add_var C x t0 e0) t1 t2 ->
     subtype (ctx_subst x e0 C) (ty_subst x e0 t1) (ty_subst x e0 t2).
+Proof.
+  intros.
+  induction H2.
+  - apply SBase.
+  - unfold ty_subst. destruct (String.eq_dec x var); subst.
+    * replace ((var =? var)%string) with true by (symmetry; apply String.eqb_refl).
+      eapply SSet. admit. admit. admit.
+    * apply String.eqb_neq in n. rewrite n.
+      eapply SSet. admit. admit. admit.
+  - unfold ty_subst. destruct (String.eq_dec x var); subst.
+    * replace ((var =? var)%string) with true by (symmetry; apply String.eqb_refl).
+      apply SSetBase. admit.
+    * apply String.eqb_neq in n. rewrite n.
+      apply SSetBase. admit.
+  - unfold ty_subst. destruct (String.eq_dec x var); subst.
+    * replace ((var =? var)%string) with true by (symmetry; apply String.eqb_refl).
+      eapply SBaseSet. eapply VSet. admit. admit.
+    * apply String.eqb_neq in n. rewrite n.
+      eapply SBaseSet. eapply VSet. admit. admit.
+  - unfold ty_subst. apply SFun. fold ty_subst. assumption. fold ty_subst. assumption.
+  - unfold ty_subst. destruct (String.eq_dec x var); subst.
+    * replace ((var =? var)%string) with true by (symmetry; apply String.eqb_refl).
+      eapply SFunDep. fold ty_subst. assumption. fold ty_subst. admit.
+    * apply String.eqb_neq in n. rewrite n.
+      eapply SFunDep. fold ty_subst. assumption. fold ty_subst. admit.
+  - apply SPair. fold ty_subst. assumption. fold ty_subst. assumption.
+  - apply SRef. fold ty_subst. assumption. fold ty_subst. assumption.
 Admitted.
 
 (* Paper Lemma 6, subtyping clause.
@@ -2137,7 +2181,7 @@ Admitted.
 Lemma subst_base_subtype :
   forall G1 G2 x e0 t0 t1 t2,
     DTDT.machine_inter.value G1 e0 ->
-    β[ t0 ] ->
+    β[ t0 ] = true ->
     has_type_pure G1 e0 (essential_type t0) ->
     has_type G1 e0 t0 ->
     ctx_subst x e0 G1 = G1 ->
@@ -2161,19 +2205,22 @@ Qed.
    Base substitution commutes with the selfification step used by typing. *)
 Lemma subst_base_self_subtype_ctx :
   forall C x e0 t0 e t,
-    β[ t0 ] ->
+    β[ t0 ] = true ->
     has_type_pure (ctx_subst x e0 C) e0 (essential_type t0) ->
     free_exp_vars e0 = [] ->
     has_type (ctx_add_var C x t0 e0) e t ->
     subtype (ctx_subst x e0 C)
       (self (ty_subst x e0 t) (expr_subst x e0 e))
       (ty_subst x e0 (self t e)).
+Proof.
+  intros.
+  
 Admitted.
 
 Lemma subst_base_self_subtype :
   forall G1 G2 x e0 t0 e t,
     DTDT.machine_inter.value G1 e0 ->
-    β[ t0 ] ->
+    β[ t0 ] = true ->
     has_type_pure G1 e0 (essential_type t0) ->
     has_type G1 e0 t0 ->
     ctx_subst x e0 G1 = G1 ->
@@ -2199,17 +2246,27 @@ Qed.
    Base substitution preserves typing. *)
 Lemma subst_base_has_type_ctx :
   forall C x e0 t0 e t,
-    β[ t0 ] ->
+    β[ t0 ] = true ->
     has_type_pure (ctx_subst x e0 C) e0 (essential_type t0) ->
     free_exp_vars e0 = [] ->
     has_type (ctx_add_var C x t0 e0) e t ->
     has_type (ctx_subst x e0 C) (expr_subst x e0 e) (ty_subst x e0 t).
+Proof.
+  intros.
+  induction H2; unfold ty_subst; simpl.
+  apply TString.
+  apply TNat.
+  apply TBool.
+  apply TUnit.
+  eapply TConst. admit.
+  destruct (x =? v)%string; subst.
+  
 Admitted.
 
 Lemma subst_base_has_type :
   forall G1 G2 x e0 t0 e t,
     DTDT.machine_inter.value G1 e0 ->
-    β[ t0 ] ->
+    β[ t0 ] = true ->
     has_type_pure G1 e0 (essential_type t0) ->
     has_type G1 e0 t0 ->
     ctx_subst x e0 G1 = G1 ->
@@ -2662,48 +2719,33 @@ Inductive no_if_binder_shadow (x : string) :
 Lemma has_type_pure_empty_ctx_base :
   forall e t,
     has_type_pure empty_ctx e t ->
-    β[ t ].
+    β[ t ] = true.
 Proof.
   intros e t Hpure.
   induction Hpure.
   - unfold var_ctx_lookup, empty_ctx in H.
     simpl in H.
     discriminate.
-  - simpl. exact I.
-  - simpl. exact I.
-  - simpl. exact I.
-  - simpl. exact I.
+  - simpl. reflexivity.
+  - simpl. reflexivity.
+  - simpl. reflexivity.
+  - simpl. reflexivity.
   - unfold const_ctx_lookup, empty_ctx in H.
     simpl in H.
     discriminate.
   - simpl in IHHpure1.
-    contradiction.
-  - simpl. exact I.
-  - simpl. exact I.
-  - simpl. exact I.
-  - simpl. exact I.
-  - simpl. exact I.
-  - simpl. exact I.
-Qed.
-
-Lemma has_type_pure_empty_ctx_app_absurd :
-  forall e1 e2 t,
-    has_type_pure empty_ctx (EApp e1 e2) t ->
-    False.
-Proof.
-  intros e1 e2 t Hpure.
-  inversion Hpure; subst.
-  match goal with
-  | Hfun : has_type_pure empty_ctx _ (TArr _ _) |- _ =>
-      pose proof (has_type_pure_empty_ctx_base _ _ Hfun) as Hbase;
-      simpl in Hbase;
-      contradiction
-  end.
+    discriminate.
+  - simpl. reflexivity.
+  - simpl. reflexivity.
+  - simpl. reflexivity.
+  - simpl. reflexivity.
+  - simpl. reflexivity.
+  - simpl. reflexivity.
 Qed.
 
 Lemma subst_nonbase_has_type :
   forall G1 G2 x v t0 e t,
-    essential_type_is_base_type t0 = false ->
+    β[ t0 ] = false ->
     has_type_pure empty_ctx v t0 ->
     forall Hty : has_type (ctx_add_var (add_ctx G2 G1) x t0 v) e t,
       no_if_binder_shadow x _ _ _ Hty ->
@@ -2711,8 +2753,7 @@ Lemma subst_nonbase_has_type :
 Proof.
   intros G1 G2 x v t0 e t Hnb Hpure Hty _.
   pose proof (has_type_pure_empty_ctx_base v t0 Hpure) as Hbase.
-  pose proof (bool_prop_eq_true _ Hbase) as Hbase_eq.
-  rewrite Hnb in Hbase_eq.
+  rewrite Hnb in Hbase.
   discriminate.
 Qed.
 
@@ -2932,7 +2973,7 @@ Admitted.
 Lemma step_lemma_subtype :
   forall G e e' x tb t1 t,
     step (G, e) (G, e') ->
-    has_type_pure empty_ctx e (TBase tb) ->
+    empty_ctx ⊢pure e : TBase tb ->
     [| t1 |] = TBase tb ->
     ty_valid (ctx_add_var G x t1 e) t ->
     subtype G (ty_subst x e' t) (ty_subst x e t).
@@ -2995,6 +3036,7 @@ Proof.
   rewrite add_ctx_empty_l in Hweak.
   exact Hweak.
 Qed.
+
 Lemma step_lemma_bool_subtype_ctx_right :
   forall C u e e',
     step (empty_ctx, e) (empty_ctx, e') ->
