@@ -258,17 +258,48 @@ Proof.
   inversion Hlookup.
 Qed.
 
-
 (* ==================== PAPER THEOREM 4 ====================
    Implementation-aligned preservation: stepping preserves typing together with
    the store well-typedness invariant needed by the reference fragment. *)
-Theorem preservation :
-  forall G e G' e' tau,
-    store_well_typed G ->
-    has_type G e tau ->
-    step (G, e) (G', e') ->
-    has_type G' e' tau /\ store_well_typed G'.
+
+Lemma preservation_left :
+  forall Γ e Γ' e' τ,
+    store_well_typed Γ ->
+    has_type Γ e τ ->
+    step (Γ, e) (Γ', e') ->
+    has_type Γ' e' τ.
+Proof.
+  intros.
+  
 Admitted.
+
+Lemma preservation_right :
+  forall Γ e Γ' e' τ,
+    store_well_typed Γ ->
+    has_type Γ e τ ->
+    step (Γ, e) (Γ', e') ->
+    store_well_typed Γ'.
+Proof.
+  intros.
+  inversion H.
+  econstructor.
+  intros.
+  split.
+  specialize (H2 l t v).
+Admitted.
+
+Theorem preservation :
+  forall Γ e Γ' e' τ,
+    store_well_typed Γ ->
+    has_type Γ e τ ->
+    step (Γ, e) (Γ', e') ->
+    has_type Γ' e' τ /\ store_well_typed Γ'.
+Proof.
+  intros Γ e Γ' e' τ Hstore Htype Hstep.
+  split.
+  exact (preservation_left _ _ _ _ _ Hstore Htype Hstep).
+  exact (preservation_right _ _ _ _ _ Hstore Htype Hstep).
+Qed.
 
 (* ==================== PAPER THEOREM 5 ====================
    If ∅ ⊢ e : τ, then e is a value, e = fail, or there exists e' with e → e'. *)

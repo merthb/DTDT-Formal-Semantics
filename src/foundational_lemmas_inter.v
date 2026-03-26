@@ -2095,24 +2095,94 @@ Lemma subst_base_ty_valid_ctx :
     ty_valid (ctx_add_var C x t0 e0) t ->
     ty_valid (ctx_subst x e0 C) (ty_subst x e0 t).
 Proof.
-  intros.
-  induction H2.
+  intros C x e0 t0 t Hbeta Hpure Hfv Hvalid.
+  generalize dependent Hfv.
+  generalize dependent Hpure.
+  generalize dependent Hbeta.
+  remember (ctx_add_var C x t0 e0) as Γ eqn:HeqΓ.
+  induction Hvalid; intros Hbeta Hpure Hfv; simpl.
   - apply VBase.
-  - unfold ty_subst. destruct (String.eq_dec x var); subst.
-    * replace ((var =? var)%string) with true by (symmetry; apply String.eqb_refl).
-      eapply VSet. admit.
-    * apply String.eqb_neq in n. rewrite n.
-      eapply VSet. admit.
-  - apply VFun. fold ty_subst. assumption. fold ty_subst. assumption.
-  - unfold ty_subst. destruct (String.eq_dec x var); subst.
-    * replace ((var =? var)%string) with true by (symmetry; apply String.eqb_refl).
-      fold ty_subst. eapply VFunDep. assumption.
-      admit.
-    * apply String.eqb_neq in n. rewrite n.
-      fold ty_subst. eapply VFunDep. assumption.
-      admit.
-  - apply VPair. fold ty_subst. assumption. fold ty_subst. assumption.
-  - apply VRef. fold ty_subst. assumption.
+  - unfold ty_subst.
+    destruct (String.eq_dec x var) as [Heq | Hneq].
+    + subst.
+      rewrite String.eqb_refl.
+      eapply VSet.
+      rewrite ctx_add_var_shadow in H.
+      eapply subst_base_has_type_pure_shadow_ctx
+        with (t0 := t0) (t_old := TBase τb) (witness := v).
+      * exact Hbeta.
+      * exact Hpure.
+      * exact H.
+    + apply String.eqb_neq in Hneq.
+      rewrite Hneq.
+      eapply VSet.
+      rewrite HeqΓ in H.
+      rewrite ctx_add_var_swap in H.
+      2: apply String.eqb_neq in Hneq; exact Hneq.
+      replace (TBase τb) with (ty_subst x e0 (TBase τb)) by reflexivity.
+      rewrite <- ctx_subst_ctx_add_var by exact Hneq'.
+      instantiate (1 := v).
+      replace (TBase BBool) with (ty_subst x e0 (TBase BBool)) by reflexivity.
+      eapply subst_base_has_type_pure_gen.
+      * exact Hbeta.
+      * pose proof (String.eqb_neq x var) as Hneq'.
+        rewrite ctx_subst_ctx_add_var by exact Hneq'.
+        simpl.
+        eapply weakening_closed_has_type_pure_var.
+        -- exact Hfv.
+        -- exact Hpure.
+      * exact H.
+  - apply VFun.
+    + eapply IHHvalid1.
+      * exact HeqΓ.
+      * exact Hbeta.
+      * exact Hpure.
+      * exact Hfv.
+    + eapply IHHvalid2.
+      * exact HeqΓ.
+      * exact Hbeta.
+      * exact Hpure.
+      * exact Hfv.
+  - unfold ty_subst.
+    destruct (String.eq_dec x var) as [Heq | Hneq].
+    + subst.
+      replace ((var =? var)%string) with true by (symmetry; apply String.eqb_refl).
+      fold ty_subst.
+      eapply VFunDep.
+      * eapply IHHvalid1.
+        -- reflexivity.
+        -- exact Hbeta.
+        -- exact Hpure.
+        -- exact Hfv.
+      * admit.
+    + subst. pose proof (String.eqb_neq x var) as Hneq'. 
+      pose proof (proj2 Hneq' Hneq) as H. 
+      replace (x =? var)%string with false.
+      fold ty_subst. 
+      eapply VFunDep.
+      * eapply IHHvalid1.
+        -- reflexivity.
+        -- exact Hbeta.
+        -- exact Hpure.
+        -- exact Hfv.
+      * admit.
+  - apply VPair.
+    * eapply IHHvalid1.
+        -- exact HeqΓ.
+        -- exact Hbeta.
+        -- exact Hpure.
+        -- exact Hfv.
+    * eapply IHHvalid2.
+        -- exact HeqΓ.
+        -- exact Hbeta.
+        -- exact Hpure.
+        -- exact Hfv.
+  - apply VRef.
+    apply IHHvalid.
+    * exact HeqΓ.
+    * exact Hbeta.
+    * exact Hpure.
+    * exact Hfv.
 Admitted.
 
 (* Paper Lemma 6, validity clause.
