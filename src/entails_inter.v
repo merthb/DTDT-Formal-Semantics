@@ -94,6 +94,12 @@ Axiom entails_imp_refl :
   forall G e,
     entails G (EImp e e).
 
+Axiom entails_modus_ponens :
+  forall G p q,
+    entails G (EImp p q) ->
+    entails G p ->
+    entails G q.
+
 (* Convenience restatement of entailment weakening. *)
 Lemma entails_weaken_right :
   forall Γ₁ Γ₂ Γ₃ e,

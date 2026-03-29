@@ -140,12 +140,12 @@ Qed.
 Lemma has_type_reference_conditional_test :
   has_type ref_nat_ctx
     (EIf (EEq (ENat 0) (ENat 0))
-         (EPlus (EGet (EVar "l")) (ENat 1))
+         (EPlus (EGet (ELoc "l")) (ENat 1))
          (ENat 0))
     (TBase BNat).
 Proof.
   unfold ref_nat_ctx.
-  eapply TIf with (u := "u").
+  eapply TIf.
   - eapply PEq; apply PNat.
   - apply TPlus.
     + eapply TGet.
@@ -166,7 +166,7 @@ Proof.
   - apply VFunDep with (v := EVar "r").
     + apply VRef. apply VBase.
     + apply VBase.
-  - eapply TIf with (u := "u").
+  - eapply TIf.
     + eapply PEq; apply PNat.
     + apply TPlus.
       * eapply TGet.

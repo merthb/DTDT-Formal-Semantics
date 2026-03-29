@@ -43,6 +43,7 @@ with i_expr : Type :=
 
 | EConst : string -> i_expr
 | EVar    : string -> i_expr
+| ELoc    : string -> i_expr
 | EFix    : string -> string -> i_ty -> i_ty -> i_expr -> i_expr (* fix f (x : τ1) : τ2 . e *)
 | EApp    : i_expr -> i_expr -> i_expr
 | EPlus   : i_expr -> i_expr -> i_expr
@@ -144,6 +145,7 @@ with expr : Type :=
 
 | ExConst : string -> expr
 | ExVar    : string -> expr
+| ExLoc    : string -> expr
 | ExFix    : string -> string -> ty -> ty -> expr -> expr
 | ExApp    : expr -> expr -> expr
 | ExPlus   : expr -> expr -> expr

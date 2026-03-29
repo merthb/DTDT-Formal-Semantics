@@ -1,4 +1,5 @@
 Require Import DTDT.syntax.
+Require Import DTDT.entails_inter.
 Require Import DTDT.semantic_rules_inter.
 
 (* Pure typing for surface expressions. *)
@@ -142,6 +143,7 @@ Fixpoint expr_subst_surf (x : string) (s : expr) (e : expr) : expr :=
   match e with
   | ExVar y =>
       if String.eqb x y then s else ExVar y
+  | ExLoc l => ExLoc l
   | ExConst c => ExConst c
   | ExString v => ExString v
   | ExBool b => ExBool b
@@ -186,5 +188,181 @@ Fixpoint ty_subst_surf (x : string) (s : expr) (τ : ty) : ty :=
   | TyRef t => TyRef (ty_subst_surf x s t)
   | TyDeRef t => TyDeRef (ty_subst_surf x s t)
   end.
+
+(* Internal encoding of dynamic references.
+   Paper form: ⟦τ dref⟧ = (unit → ⟦τ⟧) × (⟦τ⟧ → unit). *)
+Definition dref_encoding (τ : i_ty) : i_ty :=
+  TProd (TArr (TBase BUnit) τ) (TArr τ (TBase BUnit)).
+
+(* Translation of surface types and the dref-free fragment of expressions.
+   Paper forms: ⟦τ⟧ for type translation and ⟦Γ⟧c for context translation. *)
+Fixpoint trans_type (τ : ty) : i_ty :=
+  match τ with
+  | TyBase b => TBase b
+  | TySet v b e => TSet v b (match trans_expr_partial e with | Some e' => e' | None => EFail end)
+  | TyArr t1 t2 => TArr (trans_type t1) (trans_type t2)
+  | TyArrDep v t1 t2 => TArrDep v (trans_type t1) (trans_type t2)
+  | TyProd t1 t2 => TProd (trans_type t1) (trans_type t2)
+  | TyRef t => TRef (trans_type t)
+  | TyDeRef t => dref_encoding (trans_type t)
+  end
+with trans_expr_partial (e : expr) : option i_expr :=
+  match e with
+  | ExString s => Some (EString s)
+  | ExBool b => Some (EBool b)
+  | ExNat n => Some (ENat n)
+  | ExUnit u => Some (EUnit u)
+  | ExConst c => Some (EConst c)
+  | ExVar v => Some (EVar v)
+  | ExLoc l => Some (ELoc l)
+  | ExFix f x τ₁ τ₂ e1 =>
+      match trans_expr_partial e1 with
+      | Some e1' => Some (EFix f x (trans_type τ₁) (trans_type τ₂) e1')
+      | None => None
+      end
+  | ExApp e1 e2 =>
+      match trans_expr_partial e1, trans_expr_partial e2 with
+      | Some e1', Some e2' => Some (EApp e1' e2')
+      | _, _ => None
+      end
+  | ExPlus e1 e2 =>
+      match trans_expr_partial e1, trans_expr_partial e2 with
+      | Some e1', Some e2' => Some (EPlus e1' e2')
+      | _, _ => None
+      end
+  | ExPair e1 e2 =>
+      match trans_expr_partial e1, trans_expr_partial e2 with
+      | Some e1', Some e2' => Some (EPair e1' e2')
+      | _, _ => None
+      end
+  | ExFst e1 =>
+      match trans_expr_partial e1 with
+      | Some e1' => Some (EFst e1')
+      | None => None
+      end
+  | ExSnd e1 =>
+      match trans_expr_partial e1 with
+      | Some e1' => Some (ESnd e1')
+      | None => None
+      end
+  | ExIf e1 e2 e3 =>
+      match trans_expr_partial e1, trans_expr_partial e2, trans_expr_partial e3 with
+      | Some e1', Some e2', Some e3' => Some (EIf e1' e2' e3')
+      | _, _, _ => None
+      end
+  | ExNot e1 =>
+      match trans_expr_partial e1 with
+      | Some e1' => Some (ENot e1')
+      | None => None
+      end
+  | ExAnd e1 e2 =>
+      match trans_expr_partial e1, trans_expr_partial e2 with
+      | Some e1', Some e2' => Some (EAnd e1' e2')
+      | _, _ => None
+      end
+  | ExOr e1 e2 =>
+      match trans_expr_partial e1, trans_expr_partial e2 with
+      | Some e1', Some e2' => Some (EOr e1' e2')
+      | _, _ => None
+      end
+  | ExImp e1 e2 =>
+      match trans_expr_partial e1, trans_expr_partial e2 with
+      | Some e1', Some e2' => Some (EImp e1' e2')
+      | _, _ => None
+      end
+  | ExEq e1 e2 =>
+      match trans_expr_partial e1, trans_expr_partial e2 with
+      | Some e1', Some e2' => Some (EEq e1' e2')
+      | _, _ => None
+      end
+  | ExNewRef τ e1 =>
+      match trans_expr_partial e1 with
+      | Some e1' => Some (ENewRef (trans_type τ) e1')
+      | None => None
+      end
+  | ExGet e1 =>
+      match trans_expr_partial e1 with
+      | Some e1' => Some (EGet e1')
+      | None => None
+      end
+  | ExSet e1 e2 =>
+      match trans_expr_partial e1, trans_expr_partial e2 with
+      | Some e1', Some e2' => Some (ESet e1' e2')
+      | _, _ => None
+      end
+  | ExDeRef _ => None
+  | ExGetDep _ => None
+  | ExSetDep _ _ => None
+  | EAssert e1 _ => trans_expr_partial e1
+  | ESimple e1 => trans_expr_partial e1
+  | EDep e1 => trans_expr_partial e1
+  end.
+
+(* Total wrapper for positions that are required to be dref-free. *)
+Definition trans_expr_dref_free (e : expr) : i_expr :=
+  match trans_expr_partial e with
+  | Some e' => e'
+  | None => EFail
+  end.
+
+(* Translate a surface typing context into an internal context. *)
+Definition trans_ctx_surf (gs : ctx_surf) : ctx :=
+  let empty : store_context := snd empty_ctx in
+  ((fmap (fun te => match te with (t, e) => (trans_type t, trans_expr_dref_free e) end) (fst gs),
+    fmap (fun te => match te with (t, e) => (trans_type t, trans_expr_dref_free e) end) (snd gs)), empty).
+Notation "⟦ τ ⟧" := (trans_type τ) (at level 1).
+Notation "⟦ Γ ⟧c" := (trans_ctx_surf Γ) (at level 1).
+
+(* Surface-level subtyping judgment.
+   Structure follows internal subtyping, while refinement obligations are
+   discharged through internal validity/entailment over translated artifacts. *)
+Inductive subtype_surf
+  (Γ : ctx_surf) :
+  ty -> ty -> Prop :=
+  | SBaseS :
+    forall b,
+      subtype_surf Γ (TyBase b) (TyBase b)
+  | SSetS :
+    forall var tb e1 e2 (c : base_to_set tb),
+      ty_valid (trans_ctx_surf Γ) (trans_type (TySet var tb e1)) ->
+      ty_valid (trans_ctx_surf Γ) (trans_type (TySet var tb e2)) ->
+      entails (ctx_add_var (trans_ctx_surf Γ) var (TBase tb) (make_expr tb c))
+        (EImp (trans_expr_dref_free e1) (trans_expr_dref_free e2)) ->
+      subtype_surf Γ (TySet var tb e1) (TySet var tb e2)
+  | SSetBaseS :
+    forall var tb e,
+      ty_valid (trans_ctx_surf Γ) (trans_type (TySet var tb e)) ->
+      subtype_surf Γ (TySet var tb e) (TyBase tb)
+  | SBaseSetS :
+    forall var tb e (c : base_to_set tb),
+      ty_valid (trans_ctx_surf Γ) (trans_type (TySet var tb e)) ->
+      entails (ctx_add_var (trans_ctx_surf Γ) var (TBase tb) (make_expr tb c))
+        (trans_expr_dref_free e) ->
+      subtype_surf Γ (TyBase tb) (TySet var tb e)
+  | SFunS :
+    forall t1 t1' t2 t2',
+      subtype_surf Γ t1' t1 ->
+      subtype_surf Γ t2 t2' ->
+      subtype_surf Γ (TyArr t1 t2) (TyArr t1' t2')
+  | SFunDepS :
+    forall var t1 t1' t2 t2' v,
+      subtype_surf Γ t1' t1 ->
+      subtype_surf (ctx_add_var_surf Γ var t1' v) t2 t2' ->
+      subtype_surf Γ (TyArrDep var t1 t2) (TyArrDep var t1' t2')
+  | SPairS :
+    forall t1 t1' t2 t2',
+      subtype_surf Γ t1 t1' ->
+      subtype_surf Γ t2 t2' ->
+      subtype_surf Γ (TyProd t1 t2) (TyProd t1' t2')
+  | SRefS :
+    forall t t',
+      subtype_surf Γ t t' ->
+      subtype_surf Γ t' t ->
+      subtype_surf Γ (TyRef t) (TyRef t')
+  | SDRefS :
+    forall t t',
+      subtype_surf Γ t t' ->
+      subtype_surf Γ t' t ->
+      subtype_surf Γ (TyDeRef t) (TyDeRef t').
 
 

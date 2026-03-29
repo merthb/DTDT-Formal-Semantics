@@ -6,10 +6,10 @@ src/machine_inter_tests.v
 src/entails_inter.v
 src/semantic_rules_inter.v
 src/semantic_rules_inter_tests.v
-src/foundational_lemmas_inter.v
-src/type_safety_lemmas_inter.v
 src/semantic_rules_surf.v
 src/type_directed_translation.v
 src/type_directed_translation_tests.v
+src/foundational_lemmas_inter.v
+src/type_safety_lemmas_inter.v
 src/translation_soundness_lemmas.v
 src/translation_completeness_lemmas.v

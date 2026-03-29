@@ -30,7 +30,7 @@ Inductive value (Γ : ctx) : i_expr -> Prop :=
   | VLoc :
     forall l τ v,
       Γ !!₃ l = Some (τ, v) ->
-      value Γ (EVar l).
+      value Γ (ELoc l).
 
 Inductive base_value : i_expr -> Prop :=
   | BVNat : forall n, base_value (ENat n)
@@ -104,13 +104,14 @@ Definition base_eq (v1 v2 : i_expr) : bool :=
 Fixpoint expr_subst (x : string) (s : i_expr) (e : i_expr) : i_expr :=
   match e with
   | EVar y => if String.eqb x y then s else EVar y
+  | ELoc l => ELoc l
   | EConst c => EConst c
   | EString v => EString v
   | EBool b => EBool b
   | ENat n => ENat n
   | EUnit u => EUnit u
   | EFix f y τ₁ τ₂ body =>
-    if String.eqb y x then EFix f y τ₁ τ₂ body
+    if String.eqb f x || String.eqb y x then EFix f y τ₁ τ₂ body
     else EFix f y τ₁ τ₂ (expr_subst x s body)
   | EApp e1 e2 => EApp (expr_subst x s e1) (expr_subst x s e2)
   | EPlus e1 e2 => EPlus (expr_subst x s e1) (expr_subst x s e2)
@@ -132,6 +133,7 @@ Fixpoint expr_subst (x : string) (s : i_expr) (e : i_expr) : i_expr :=
 Fixpoint expr_subst_fun (f : string) (s : i_expr) (e : i_expr) : i_expr :=
   match e with
   | EVar y => if String.eqb f y then s else EVar y
+  | ELoc l => ELoc l
   | EConst c => EConst c
   | EString v => EString v
   | EBool b => EBool b
@@ -226,19 +228,19 @@ Inductive step : (ctx * i_expr) -> (ctx * i_expr) -> Prop :=
       ~ In l (store_dom Γ) ->
       step
         (Γ, ENewRef τ v)
-        (Γ ,,s l ↦ (τ, v), EVar l)
+        (Γ ,,s l ↦ (τ, v), ELoc l)
   | StepGet :
     forall Γ x τ v,
       Γ !!₃ x = Some (τ, v) ->
       step
-        (Γ, EGet (EVar x))
+        (Γ, EGet (ELoc x))
         (Γ, v)
   | StepSet :
     forall Γ x τ v e,
       value Γ v ->
       Γ !!₃ x = Some (τ, e) ->
       step
-        (Γ, ESet (EVar x) v)
+        (Γ, ESet (ELoc x) v)
         (Γ ,,s x ↦ (τ, v), EUnit tt)
   | StepFail :
     forall Γ E,

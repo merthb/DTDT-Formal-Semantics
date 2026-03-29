@@ -287,7 +287,7 @@ Inductive has_type
   | TLoc :
     forall l t v,
       Γ !!₃ l = Some (t, v) ->
-      has_type Γ (EVar l) (TRef t)
+      has_type Γ (ELoc l) (TRef t)
   | TFail :
     forall τ,
       ty_valid Γ τ ->
@@ -365,10 +365,10 @@ Inductive has_type
       has_type Γ e (TProd τ₁ τ₂) ->
       has_type Γ (ESnd e) τ₂
   | TIf :
-    forall e e₁ e₂ τ u,
+    forall e e₁ e₂ τ,
       has_type_pure Γ e (TBase BBool) ->
-      has_type (Γ ,,v u ↦ (TBase BBool, e)) e₁ τ ->
-      has_type (Γ ,,v u ↦ (TBase BBool, ENot e)) e₂ τ ->
+      has_type (Γ ,,v (fresh_string_list (exp_vars (EIf e e₁ e₂))) ↦ (TBase BBool, e)) e₁ τ ->
+      has_type (Γ ,,v (fresh_string_list (exp_vars (EIf e e₁ e₂))) ↦ (TBase BBool, ENot e)) e₂ τ ->
       has_type Γ (EIf e e₁ e₂) τ
   | TSelf :
     forall e τ,
@@ -391,3 +391,28 @@ Inductive store_well_typed (Γ : ctx) : Prop :=
       Γ !!₃ l = Some (t, v) ->
       ty_valid Γ t /\ has_type Γ v t) ->
     store_well_typed Γ.
+
+Definition var_well_typed (Γ : ctx) : Prop :=
+  forall x t v,
+    var_ctx_lookup Γ x = Some (t, v) ->
+    ty_valid Γ t /\ has_type Γ v t.
+
+Definition const_well_typed (Γ : ctx) : Prop :=
+  forall c t e,
+    const_ctx_lookup Γ c = Some (t, e) ->
+    ty_valid Γ t /\ has_type Γ e t.
+
+Definition const_step_well_typed (Γ : ctx) : Prop :=
+  forall c t e v τtop,
+    const_ctx_lookup Γ c = Some (t, e) ->
+    value Γ v ->
+    has_type Γ (EApp (EConst c) v) τtop ->
+    has_type Γ e τtop.
+
+Inductive runtime_ctx_well_typed (Γ : ctx) : Prop :=
+  | RuntimeCtxWellTyped :
+    var_well_typed Γ ->
+    const_well_typed Γ ->
+    const_step_well_typed Γ ->
+    store_well_typed Γ ->
+    runtime_ctx_well_typed Γ.

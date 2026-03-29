@@ -10,11 +10,6 @@ Inductive mode : Type :=
   | sim : mode
   | dep : mode.
 
-(* Internal encoding of dynamic references.
-   Paper form: ⟦τ dref⟧ = (unit → ⟦τ⟧) × (⟦τ⟧ → unit). *)
-Definition dref_encoding (τ : i_ty) : i_ty :=
-  TProd (TArr (TBase BUnit) τ) (TArr τ (TBase BUnit)).
-
 (* Read through the encoded dynamic-reference interface. *)
 Definition dget (e : i_expr) : i_expr :=
   EApp (EFst e) (EUnit tt).
@@ -31,126 +26,6 @@ Definition pack_dref (τ : i_ty) (e : i_expr) : i_expr :=
     (EFix "" u (TBase BUnit) τ (EGet e))
     (EFix "" x τ (TBase BUnit) (ESet e (EVar x))).
 
-(* Translation of surface types and the dref-free fragment of expressions.
-   Paper forms: ⟦τ⟧ for type translation and ⟦Γ⟧c for context translation. *)
-
-Fixpoint trans_type (τ : ty) : i_ty :=
-  match τ with
-  | TyBase b => TBase b
-  | TySet v b e => TSet v b (match trans_expr_partial e with | Some e => e | None => EFail end)
-  | TyArr t1 t2 => TArr (trans_type t1) (trans_type t2)
-  | TyArrDep v t1 t2 => TArrDep v (trans_type t1) (trans_type t2)
-  | TyProd t1 t2 => TProd (trans_type t1) (trans_type t2)
-  | TyRef t => TRef (trans_type t)
-  | TyDeRef t => dref_encoding (trans_type t)
-  end
-
-with trans_expr_partial (e : expr) : option i_expr :=
-  match e with
-  | ExString s => Some (EString s)
-  | ExBool b => Some (EBool b)
-  | ExNat n => Some (ENat n)
-  | ExUnit u => Some (EUnit u)
-  | ExConst c => Some (EConst c)
-  | ExVar v => Some (EVar v)
-  | ExFix f x τ₁ τ₂ e =>
-      match trans_expr_partial e with
-      | Some e' => Some (EFix f x (trans_type τ₁) (trans_type τ₂) e')
-      | None => None
-      end
-  | ExApp e1 e2 =>
-      match trans_expr_partial e1, trans_expr_partial e2 with
-      | Some e1', Some e2' => Some (EApp e1' e2')
-      | _, _ => None
-      end
-  | ExPlus e1 e2 =>
-      match trans_expr_partial e1, trans_expr_partial e2 with
-      | Some e1', Some e2' => Some (EPlus e1' e2')
-      | _, _ => None
-      end
-  | ExPair e1 e2 =>
-      match trans_expr_partial e1, trans_expr_partial e2 with
-      | Some e1', Some e2' => Some (EPair e1' e2')
-      | _, _ => None
-      end
-  | ExFst e =>
-      match trans_expr_partial e with
-      | Some e' => Some (EFst e')
-      | None => None
-      end
-  | ExSnd e =>
-      match trans_expr_partial e with
-      | Some e' => Some (ESnd e')
-      | None => None
-      end
-  | ExIf e1 e2 e3 =>
-      match trans_expr_partial e1, trans_expr_partial e2, trans_expr_partial e3 with
-      | Some e1', Some e2', Some e3' => Some (EIf e1' e2' e3')
-      | _, _, _ => None
-      end
-  | ExNot e =>
-      match trans_expr_partial e with
-      | Some e' => Some (ENot e')
-      | None => None
-      end
-  | ExAnd e1 e2 =>
-      match trans_expr_partial e1, trans_expr_partial e2 with
-      | Some e1', Some e2' => Some (EAnd e1' e2')
-      | _, _ => None
-      end
-  | ExOr e1 e2 =>
-      match trans_expr_partial e1, trans_expr_partial e2 with
-      | Some e1', Some e2' => Some (EOr e1' e2')
-      | _, _ => None
-      end
-  | ExImp e1 e2 =>
-      match trans_expr_partial e1, trans_expr_partial e2 with
-      | Some e1', Some e2' => Some (EImp e1' e2')
-      | _, _ => None
-      end
-  | ExEq e1 e2 =>
-      match trans_expr_partial e1, trans_expr_partial e2 with
-      | Some e1', Some e2' => Some (EEq e1' e2')
-      | _, _ => None
-      end
-  | ExNewRef τ e =>
-      match trans_expr_partial e with
-      | Some e' => Some (ENewRef (trans_type τ) e')
-      | None => None
-      end
-  | ExGet e =>
-      match trans_expr_partial e with
-      | Some e' => Some (EGet e')
-      | None => None
-      end
-  | ExSet e1 e2 =>
-      match trans_expr_partial e1, trans_expr_partial e2 with
-      | Some e1', Some e2' => Some (ESet e1' e2')
-      | _, _ => None
-      end
-  | ExDeRef _ => None
-  | ExGetDep _ => None
-  | ExSetDep _ _ => None
-  | EAssert e _ => trans_expr_partial e
-  | ESimple e => trans_expr_partial e
-  | EDep e => trans_expr_partial e
-  end
-.
-
-(* Total wrapper for positions that are required to be dref-free. *)
-Definition trans_expr_dref_free (e : expr) : i_expr :=
-  match trans_expr_partial e with
-  | Some e' => e'
-  | None => EFail
-  end.
-
-(* Translate a surface typing context into an internal context. *)
-Definition trans_ctx_surf (gs : ctx_surf) : ctx :=
-  let empty : store_context := snd empty_ctx in
-  ((fmap (fun te => match te with (t, e) => (trans_type t, trans_expr_dref_free e) end) (fst gs),
-    fmap (fun te => match te with (t, e) => (trans_type t, trans_expr_dref_free e) end) (snd gs)), empty).
-Notation "⟦ τ ⟧" := (trans_type τ) (at level 1).
-Notation "⟦ Γ ⟧c" := (trans_ctx_surf Γ) (at level 1).
 
 (* ------------------------------------------------------------------------- *)
 (* Erase dependency occurrences of a variable `x` from an internal type      *)
@@ -170,6 +45,7 @@ Fixpoint free_exp_vars (e : i_expr) : list string :=
   | EUnit _ => []
   | EConst _ => []
   | EVar v => [v]
+  | ELoc _ => []
   | EFix f x t1 t2 body =>
       free_ty_vars t1 ++ remove_string f (remove_string x (free_ty_vars t2 ++ free_exp_vars body))
   | EApp e1 e2 => free_exp_vars e1 ++ free_exp_vars e2
@@ -232,7 +108,7 @@ Fixpoint erase_i_ty (τ : i_ty) : i_ty :=
   | TRef τ =>
       dref_encoding (erase_i_ty τ)
   end.
-Notation "[| t |]" := (erase_i_ty t) (at level 1).
+  Notation "[| t |]" := (erase_i_ty t) (at level 1).
 
 (* Paper-exact admissibility predicates for source reference types.
    These implement the appendix definitions of co ref and contra ref on the
