@@ -155,6 +155,16 @@ Qed.
 
 (* ==================== PAPER LEMMA 11 ====================
    If ∅ ⊢ v : bool and v is a value, then v = true or v = false. *)
+Lemma subtype_base_essential_inv :
+  forall G t1 t2 b,
+    subtype G t1 t2 ->
+    essential_type t2 = TBase b ->
+    essential_type t1 = TBase b.
+Proof.
+  intros G t1 t2 b Hsub Hbase.
+  induction Hsub; simpl in *; try discriminate; inversion Hbase; reflexivity.
+Qed.
+
 Lemma subtype_bool_essential_inv :
   forall G t1 t2,
     subtype G t1 t2 ->
@@ -249,6 +259,373 @@ Proof.
     discriminate.
 Qed.
 
+Lemma self_to_TArr :
+  forall tau e tau1 tau2,
+    self tau e = TArr tau1 tau2 ->
+    tau = TArr tau1 tau2.
+Proof.
+  intros tau e tau1 tau2 Hself.
+  destruct tau as [b | var tb expr | tdom tcod | var tdom tcod | t1 t2 | t]; simpl in Hself; try discriminate.
+  destruct tdom; simpl in Hself; try discriminate; inversion Hself; subst; reflexivity.
+Qed.
+
+Lemma self_to_TArrDep_cases :
+  forall tau e x tau1 tau2,
+    self tau e = TArrDep x tau1 tau2 ->
+    tau = TArrDep x tau1 tau2 \/
+    exists b tau2', tau = TArr (TBase b) tau2'.
+Proof.
+  intros tau e x tau1 tau2 Hself.
+  destruct tau as [b | var tb expr | tdom tcod | var tdom tcod | t1 t2 | t]; simpl in Hself; try discriminate.
+  destruct tdom; simpl in Hself; try discriminate.
+  - right.
+    eexists _, _. reflexivity.
+  - left.
+    inversion Hself; subst. reflexivity.
+Qed.
+
+Lemma self_to_TProd :
+  forall tau e tau1 tau2,
+    self tau e = TProd tau1 tau2 ->
+    tau = TProd tau1 tau2.
+Proof.
+  intros tau e tau1 tau2 Hself.
+  destruct tau as [b | var tb expr | tdom tcod | var tdom tcod | t1 t2 | t]; simpl in Hself; try discriminate.
+  - destruct tdom; simpl in Hself; discriminate.
+  - inversion Hself; subst. reflexivity.
+Qed.
+
+Lemma self_essential_base_inv :
+  forall tau e b,
+    essential_type (self tau e) = TBase b ->
+    essential_type tau = TBase b.
+Proof.
+  intros tau e b Hself.
+  destruct tau as [b0 | var tb expr | tdom tcod | var tdom tcod | t1 t2 | t]; simpl in Hself; try discriminate.
+  - inversion Hself; subst. reflexivity.
+  - inversion Hself; subst. reflexivity.
+  - destruct tdom; simpl in Hself; discriminate.
+Qed.
+
+Lemma no_simple_arrow_value_nobindings :
+  forall G v tau1 tau2,
+    (forall x, var_ctx_lookup G x = None) ->
+    (forall c, const_ctx_lookup G c = None) ->
+    has_type G v (TArr tau1 tau2) ->
+    DTDT.machine_inter.value G v ->
+    False.
+Proof.
+  intros G v tau1 tau2 HnoneVar HnoneConst Hty Hv.
+  remember (TArr tau1 tau2) as targ eqn:Heqtarg.
+  revert tau1 tau2 Heqtarg.
+  induction Hty; intros tau1' tau2' Heqtarg; subst;
+    try solve [inversion Heqtarg];
+    try solve [inversion Hv; subst; try discriminate; discriminate].
+  all: try match goal with
+  | Hlookup : const_ctx_lookup _ _ = Some _ |- _ =>
+      rewrite HnoneConst in Hlookup; discriminate
+  end.
+  all: try match goal with
+  | Hlookup : var_ctx_lookup _ _ = Some _ |- _ =>
+      rewrite HnoneVar in Hlookup; discriminate
+  end.
+  all: try match goal with
+  | Hself : self ?tau ?e = TArr _ _ |- _ =>
+      apply self_to_TArr in Hself;
+      subst;
+      eapply IHHty; eauto
+  end.
+  all: try match goal with
+  | Hsub : subtype _ _ (TArr _ _) |- _ =>
+      inversion Hsub; subst; try discriminate;
+      eapply IHHty; eauto
+  end.
+Qed.
+
+Lemma canonical_forms_fun_dep_nobindings :
+  forall G v x tau1 tau2,
+    (forall y, var_ctx_lookup G y = None) ->
+    (forall c, const_ctx_lookup G c = None) ->
+    has_type G v (TArrDep x tau1 tau2) ->
+    DTDT.machine_inter.value G v ->
+    exists f y tau1' tau2' body,
+      v = EFix f y tau1' tau2' body.
+Proof.
+  intros G v x tau1 tau2 HnoneVar HnoneConst Hty Hv.
+  remember (TArrDep x tau1 tau2) as targ eqn:Heqtarg.
+  revert x tau1 tau2 Heqtarg.
+  induction Hty; intros x' tau1' tau2' Heqtarg; subst;
+    try solve [inversion Heqtarg];
+    try solve [inversion Hv; subst; try discriminate].
+  all: try match goal with
+  | Hlookup : const_ctx_lookup _ _ = Some _ |- _ =>
+      rewrite HnoneConst in Hlookup; discriminate
+  end.
+  all: try match goal with
+  | Hlookup : var_ctx_lookup _ _ = Some _ |- _ =>
+      rewrite HnoneVar in Hlookup; discriminate
+  end.
+  all: try solve [do 5 eexists; reflexivity].
+  all: try match goal with
+  | Hself : self ?tau ?e = TArrDep _ _ _ |- _ =>
+      destruct (self_to_TArrDep_cases _ _ _ _ _ Hself) as [Htau | [b [tau2'' Htau]]];
+      [ subst; eapply IHHty; eauto
+      | subst; exfalso; eapply no_simple_arrow_value_nobindings; eauto ]
+  end.
+  all: try match goal with
+  | Hsub : subtype _ _ (TArrDep _ _ _) |- _ =>
+      inversion Hsub; subst; try discriminate;
+      eapply IHHty; eauto
+  end.
+Qed.
+
+Lemma canonical_forms_base_essential_nobindings :
+  forall G v ty b,
+    (forall x, var_ctx_lookup G x = None) ->
+    (forall c, const_ctx_lookup G c = None) ->
+    has_type G v ty ->
+    DTDT.machine_inter.value G v ->
+    essential_type ty = TBase b ->
+    base_value v.
+Proof.
+  intros G v ty b HnoneVar HnoneConst Hty Hv Hbase.
+  remember G as C eqn:HeqC.
+  revert b HnoneVar HnoneConst HeqC Hv Hbase.
+  induction Hty; intros b' HnoneVar HnoneConst HeqC Hv Hbase; subst; simpl in Hbase;
+    try discriminate;
+    try solve [inversion Hv; subst; constructor].
+  all: try match goal with
+  | Hlookup : const_ctx_lookup _ _ = Some _ |- _ =>
+      rewrite HnoneConst in Hlookup; discriminate
+  end.
+  all: try match goal with
+  | Hlookup : var_ctx_lookup _ _ = Some _ |- _ =>
+      rewrite HnoneVar in Hlookup; discriminate
+  end.
+  all: try match goal with
+  | Hself : essential_type (self ?tau ?e) = TBase ?b |- _ =>
+      apply self_essential_base_inv in Hself;
+      eapply IHHty; eauto
+  end.
+  all: try match goal with
+  | Hsub : subtype _ _ _ |- _ =>
+      eapply IHHty; eauto;
+      eapply subtype_base_essential_inv; eauto
+  end.
+Qed.
+
+Lemma nat_literal_base :
+  forall G n ty b,
+    has_type G (ENat n) ty ->
+    essential_type ty = TBase b ->
+    b = BNat.
+Proof.
+  intros G n ty b Hty.
+  remember (ENat n) as e eqn:Heqe.
+  revert b Heqe.
+  induction Hty; intros b' Heqe Hbase; inversion Heqe; subst; simpl in Hbase; try discriminate.
+  - inversion Hbase. reflexivity.
+  - eapply IHHty.
+    + reflexivity.
+    + apply self_essential_base_inv in Hbase. exact Hbase.
+  - eapply IHHty.
+    + reflexivity.
+    + eapply subtype_base_essential_inv; eauto.
+Qed.
+
+Lemma bool_literal_base :
+  forall G b ty b',
+    has_type G (EBool b) ty ->
+    essential_type ty = TBase b' ->
+    b' = BBool.
+Proof.
+  intros G b ty b' Hty.
+  remember (EBool b) as e eqn:Heqe.
+  revert b' Heqe.
+  induction Hty; intros b'' Heqe Hbase; inversion Heqe; subst; simpl in Hbase; try discriminate.
+  - inversion Hbase. reflexivity.
+  - eapply IHHty.
+    + reflexivity.
+    + apply self_essential_base_inv in Hbase. exact Hbase.
+  - eapply IHHty.
+    + reflexivity.
+    + eapply subtype_base_essential_inv; eauto.
+Qed.
+
+Lemma string_literal_base :
+  forall G s ty b,
+    has_type G (EString s) ty ->
+    essential_type ty = TBase b ->
+    b = BString.
+Proof.
+  intros G s ty b Hty.
+  remember (EString s) as e eqn:Heqe.
+  revert b Heqe.
+  induction Hty; intros b' Heqe Hbase; inversion Heqe; subst; simpl in Hbase; try discriminate.
+  - inversion Hbase. reflexivity.
+  - eapply IHHty.
+    + reflexivity.
+    + apply self_essential_base_inv in Hbase. exact Hbase.
+  - eapply IHHty.
+    + reflexivity.
+    + eapply subtype_base_essential_inv; eauto.
+Qed.
+
+Lemma unit_literal_base :
+  forall G ty b,
+    has_type G (EUnit tt) ty ->
+    essential_type ty = TBase b ->
+    b = BUnit.
+Proof.
+  intros G ty b Hty.
+  remember (EUnit tt) as e eqn:Heqe.
+  revert b Heqe.
+  induction Hty; intros b' Heqe Hbase; inversion Heqe; subst; simpl in Hbase; try discriminate.
+  - inversion Hbase. reflexivity.
+  - eapply IHHty.
+    + reflexivity.
+    + apply self_essential_base_inv in Hbase. exact Hbase.
+  - eapply IHHty.
+    + reflexivity.
+    + eapply subtype_base_essential_inv; eauto.
+Qed.
+
+Lemma canonical_forms_bool_essential_nobindings :
+  forall G v ty,
+    (forall x, var_ctx_lookup G x = None) ->
+    (forall c, const_ctx_lookup G c = None) ->
+    has_type G v ty ->
+    DTDT.machine_inter.value G v ->
+    essential_type ty = TBase BBool ->
+    v = EBool true \/ v = EBool false.
+Proof.
+  intros G v ty HnoneVar HnoneConst Hty Hv Hbool.
+  pose proof (canonical_forms_base_essential_nobindings G v ty BBool HnoneVar HnoneConst Hty Hv Hbool) as Hbasev.
+  destruct Hbasev as [n | b0 | | s0].
+  - exfalso.
+    pose proof (nat_literal_base G n ty BBool Hty Hbool) as Hnat.
+    discriminate.
+  - subst. destruct b0; [left | right]; reflexivity.
+  - exfalso.
+    pose proof (unit_literal_base G ty BBool Hty Hbool) as Hunit.
+    discriminate.
+  - exfalso.
+    pose proof (string_literal_base G s0 ty BBool Hty Hbool) as Hstring.
+    discriminate.
+Qed.
+
+Lemma canonical_forms_nat_essential_nobindings :
+  forall G v ty,
+    (forall x, var_ctx_lookup G x = None) ->
+    (forall c, const_ctx_lookup G c = None) ->
+    has_type G v ty ->
+    DTDT.machine_inter.value G v ->
+    essential_type ty = TBase BNat ->
+    exists n, v = ENat n.
+Proof.
+  intros G v ty HnoneVar HnoneConst Hty Hv Hnat.
+  pose proof (canonical_forms_base_essential_nobindings G v ty BNat HnoneVar HnoneConst Hty Hv Hnat) as Hbasev.
+  destruct Hbasev as [n | b0 | | s0].
+  - subst. eexists. reflexivity.
+  - exfalso.
+    pose proof (bool_literal_base G b0 ty BNat Hty Hnat) as Hbool.
+    discriminate.
+  - exfalso.
+    pose proof (unit_literal_base G ty BNat Hty Hnat) as Hunit.
+    discriminate.
+  - exfalso.
+    pose proof (string_literal_base G s0 ty BNat Hty Hnat) as Hstring.
+    discriminate.
+Qed.
+
+Lemma has_type_pure_nobindings_base :
+  forall G e t,
+    (forall x, var_ctx_lookup G x = None) ->
+    (forall c, const_ctx_lookup G c = None) ->
+    has_type_pure G e t ->
+    essential_type_is_base_type t = true.
+Proof.
+  intros G e t HnoneVar HnoneConst Hpure.
+  induction Hpure.
+  - rewrite HnoneVar in H. discriminate.
+  - simpl. reflexivity.
+  - simpl. reflexivity.
+  - simpl. reflexivity.
+  - simpl. reflexivity.
+  - rewrite HnoneConst in H. discriminate.
+  - simpl in IHHpure1. discriminate.
+  - simpl. reflexivity.
+  - simpl. reflexivity.
+  - simpl. reflexivity.
+  - simpl. reflexivity.
+  - simpl. reflexivity.
+  - simpl. reflexivity.
+Qed.
+
+Lemma canonical_forms_pair_nobindings :
+  forall G v tau1 tau2,
+    (forall x, var_ctx_lookup G x = None) ->
+    (forall c, const_ctx_lookup G c = None) ->
+    has_type G v (TProd tau1 tau2) ->
+    DTDT.machine_inter.value G v ->
+    exists v1 v2, v = EPair v1 v2.
+Proof.
+  intros G v tau1 tau2 HnoneVar HnoneConst Hty Hv.
+  remember G as C eqn:HeqC.
+  remember (TProd tau1 tau2) as tp eqn:Heqtp.
+  revert tau1 tau2 HnoneVar HnoneConst HeqC Heqtp Hv.
+  induction Hty; intros tau1' tau2' HnoneVar HnoneConst HeqC Heqtp Hv; inversion Heqtp; subst;
+    try solve [inversion Hv; subst; try discriminate].
+  all: try match goal with
+  | Hlookup : const_ctx_lookup _ _ = Some _ |- _ =>
+      rewrite HnoneConst in Hlookup; discriminate
+  end.
+  all: try match goal with
+  | Hlookup : var_ctx_lookup _ _ = Some _ |- _ =>
+      rewrite HnoneVar in Hlookup; discriminate
+  end.
+  - eexists _, _. reflexivity.
+  - exfalso.
+    pose proof (has_type_pure_nobindings_base _ _ _ HnoneVar HnoneConst (H (TProd tau1' tau2'))) as Hbeta.
+    simpl in Hbeta. discriminate.
+  - inversion H; subst; try discriminate.
+    exact (IHHty _ _ HnoneVar HnoneConst eq_refl eq_refl Hv).
+Qed.
+
+Lemma canonical_forms_ref_nobindings :
+  forall G v tau,
+    (forall x, var_ctx_lookup G x = None) ->
+    (forall c, const_ctx_lookup G c = None) ->
+    has_type G v (TRef tau) ->
+    DTDT.machine_inter.value G v ->
+    exists l stored_tau stored,
+      v = ELoc l /\ store_ctx_lookup G l = Some (stored_tau, stored).
+Proof.
+  intros G v tau HnoneVar HnoneConst Hty Hv.
+  remember G as C eqn:HeqC.
+  remember (TRef tau) as tr eqn:Heqtr.
+  revert tau HnoneVar HnoneConst HeqC Heqtr Hv.
+  induction Hty; intros tau' HnoneVar HnoneConst HeqC Heqtr Hv; inversion Heqtr; subst;
+    try solve [inversion Hv; subst; try discriminate].
+  all: try match goal with
+  | Hlookup : const_ctx_lookup _ _ = Some _ |- _ =>
+      rewrite HnoneConst in Hlookup; discriminate
+  end.
+  all: try match goal with
+  | Hlookup : var_ctx_lookup _ _ = Some _ |- _ =>
+      rewrite HnoneVar in Hlookup; discriminate
+  end.
+  - eexists _, _, _. split; [reflexivity | exact H].
+  - match goal with
+    | Hself : self ?t ?e = TRef ?t' |- _ =>
+        apply self_ref_inv in Hself;
+        inversion Hself; subst
+    end.
+    eapply IHHty; eauto.
+  - inversion H; subst; try discriminate.
+    exact (IHHty _ HnoneVar HnoneConst eq_refl eq_refl Hv).
+Qed.
+
 Lemma store_well_typed_empty :
   store_well_typed empty_ctx.
 Proof.
@@ -277,11 +654,29 @@ Proof.
   inversion Hlookup.
 Qed.
 
+Lemma var_base_pure_well_typed_empty :
+  var_base_pure_well_typed empty_ctx.
+Proof.
+  intros ?x t v Hlookup.
+  unfold var_ctx_lookup, empty_ctx in Hlookup.
+  simpl in Hlookup.
+  inversion Hlookup.
+Qed.
+
 Lemma const_step_well_typed_empty :
   const_step_well_typed empty_ctx.
 Proof.
-  intros c t e v τtop Hlookup _ _.
+  intros c t e v ?top Hlookup _ _.
   unfold const_step_well_typed, const_ctx_lookup, empty_ctx in Hlookup.
+  simpl in Hlookup.
+  inversion Hlookup.
+Qed.
+
+Lemma const_step_pure_well_typed_empty :
+  const_step_pure_well_typed empty_ctx.
+Proof.
+  intros c t e v ? Hlookup _ _.
+  unfold const_step_pure_well_typed, const_ctx_lookup, empty_ctx in Hlookup.
   simpl in Hlookup.
   inversion Hlookup.
 Qed.
@@ -291,115 +686,160 @@ Lemma runtime_ctx_well_typed_empty :
 Proof.
   constructor.
   - exact var_well_typed_empty.
+  - exact var_base_pure_well_typed_empty.
   - exact const_well_typed_empty.
   - exact const_step_well_typed_empty.
+  - exact const_step_pure_well_typed_empty.
   - exact store_well_typed_empty.
 Qed.
 
 Lemma var_well_typed_lookup :
-  forall Γ x t v,
-    var_well_typed Γ ->
-    var_ctx_lookup Γ x = Some (t, v) ->
-    ty_valid Γ t /\ has_type Γ v t.
+  forall G x t v,
+    var_well_typed G ->
+    var_ctx_lookup G x = Some (t, v) ->
+    ty_valid G t /\ has_type G v t.
 Proof.
-  intros Γ x t v Hvar Hlookup.
+  intros G x t v Hvar Hlookup.
   exact (Hvar x t v Hlookup).
 Qed.
 
 Lemma const_well_typed_lookup :
-  forall Γ c t e,
-    const_well_typed Γ ->
-    const_ctx_lookup Γ c = Some (t, e) ->
-    ty_valid Γ t /\ has_type Γ e t.
+  forall G c t e,
+    const_well_typed G ->
+    const_ctx_lookup G c = Some (t, e) ->
+    ty_valid G t /\ has_type G e t.
 Proof.
-  intros Γ c t e Hconst Hlookup.
+  intros G c t e Hconst Hlookup.
   exact (Hconst c t e Hlookup).
 Qed.
 
 Lemma runtime_ctx_well_typed_var :
-  forall Γ,
-    runtime_ctx_well_typed Γ ->
-    var_well_typed Γ.
+  forall G,
+    runtime_ctx_well_typed G ->
+    var_well_typed G.
 Proof.
-  intros Γ Hrt.
+  intros G Hrt.
   inversion Hrt.
   exact H.
 Qed.
 
-Lemma runtime_ctx_well_typed_const :
-  forall Γ,
-    runtime_ctx_well_typed Γ ->
-    const_well_typed Γ.
+Lemma runtime_ctx_well_typed_var_base_pure :
+  forall G,
+    runtime_ctx_well_typed G ->
+    var_base_pure_well_typed G.
 Proof.
-  intros Γ Hrt.
+  intros G Hrt.
   inversion Hrt.
   exact H0.
 Qed.
 
-Lemma runtime_ctx_well_typed_store :
-  forall Γ,
-    runtime_ctx_well_typed Γ ->
-    store_well_typed Γ.
+Lemma runtime_ctx_well_typed_const :
+  forall G,
+    runtime_ctx_well_typed G ->
+    const_well_typed G.
 Proof.
-  intros Γ Hrt.
-  inversion Hrt.
-  exact H2.
-Qed.
-
-Lemma runtime_ctx_well_typed_const_step :
-  forall Γ,
-    runtime_ctx_well_typed Γ ->
-    const_step_well_typed Γ.
-Proof.
-  intros Γ Hrt.
+  intros G Hrt.
   inversion Hrt.
   exact H1.
 Qed.
 
-Lemma var_well_typed_from_none_lookup :
-  forall Γ,
-    (forall x, var_ctx_lookup Γ x = None) ->
-    var_well_typed Γ.
+Lemma runtime_ctx_well_typed_store :
+  forall G,
+    runtime_ctx_well_typed G ->
+    store_well_typed G.
 Proof.
-  intros Γ Hnone x t v Hlookup.
+  intros G Hrt.
+  inversion Hrt.
+  exact H4.
+Qed.
+
+Lemma runtime_ctx_well_typed_const_step :
+  forall G,
+    runtime_ctx_well_typed G ->
+    const_step_well_typed G.
+Proof.
+  intros G Hrt.
+  inversion Hrt.
+  exact H2.
+Qed.
+
+Lemma runtime_ctx_well_typed_const_step_pure :
+  forall G,
+    runtime_ctx_well_typed G ->
+    const_step_pure_well_typed G.
+Proof.
+  intros G Hrt.
+  inversion Hrt.
+  exact H3.
+Qed.
+
+Lemma var_well_typed_from_none_lookup :
+  forall G,
+    (forall x, var_ctx_lookup G x = None) ->
+    var_well_typed G.
+Proof.
+  intros G Hnone x t v Hlookup.
+  rewrite (Hnone x) in Hlookup.
+  inversion Hlookup.
+Qed.
+
+Lemma var_base_pure_well_typed_from_none_lookup :
+  forall G,
+    (forall x, var_ctx_lookup G x = None) ->
+    var_base_pure_well_typed G.
+Proof.
+  intros G Hnone x t v Hlookup.
   rewrite (Hnone x) in Hlookup.
   inversion Hlookup.
 Qed.
 
 Lemma const_well_typed_from_none_lookup :
-  forall Γ,
-    (forall c, const_ctx_lookup Γ c = None) ->
-    const_well_typed Γ.
+  forall G,
+    (forall c, const_ctx_lookup G c = None) ->
+    const_well_typed G.
 Proof.
-  intros Γ Hnone c t e Hlookup.
+  intros G Hnone c t e Hlookup.
   rewrite (Hnone c) in Hlookup.
   inversion Hlookup.
 Qed.
 
 Lemma const_step_well_typed_from_none_lookup :
-  forall Γ,
-    (forall c, const_ctx_lookup Γ c = None) ->
-    const_step_well_typed Γ.
+  forall G,
+    (forall c, const_ctx_lookup G c = None) ->
+    const_step_well_typed G.
 Proof.
-  intros Γ Hnone c t e v τtop Hlookup _ _.
+  intros G Hnone c t e v ttop Hlookup _ _.
+  rewrite (Hnone c) in Hlookup.
+  inversion Hlookup.
+Qed.
+
+Lemma const_step_pure_well_typed_from_none_lookup :
+  forall G,
+    (forall c, const_ctx_lookup G c = None) ->
+    const_step_pure_well_typed G.
+Proof.
+  intros G Hnone c t e v ty Hlookup _ _.
   rewrite (Hnone c) in Hlookup.
   inversion Hlookup.
 Qed.
 
 Lemma runtime_ctx_well_typed_from_invariants :
-  forall Γ,
-    (forall x, var_ctx_lookup Γ x = None) ->
-    (forall c, const_ctx_lookup Γ c = None) ->
-    store_well_typed Γ ->
-    runtime_ctx_well_typed Γ.
+  forall G,
+    (forall x, var_ctx_lookup G x = None) ->
+    (forall c, const_ctx_lookup G c = None) ->
+    store_well_typed G ->
+    runtime_ctx_well_typed G.
 Proof.
-  intros Γ HnoneVar HnoneConst Hstore.
+  intros G HnoneVar HnoneConst Hstore.
   constructor.
   - exact (var_well_typed_from_none_lookup _ HnoneVar).
+  - exact (var_base_pure_well_typed_from_none_lookup _ HnoneVar).
   - exact (const_well_typed_from_none_lookup _ HnoneConst).
   - exact (const_step_well_typed_from_none_lookup _ HnoneConst).
+  - exact (const_step_pure_well_typed_from_none_lookup _ HnoneConst).
   - exact Hstore.
 Qed.
+
 
 Lemma empty_ctx_no_var_bindings :
   forall x,
@@ -960,6 +1400,19 @@ Proof.
     exact Hlookup.
 Qed.
 
+Lemma fresh_string_list_not_in :
+  forall l,
+    ~ List.In (fresh_string_list l) l.
+Proof.
+  intros l Hin.
+  unfold fresh_string_list in *.
+  pose proof (stringmap.fresh_string_of_set_fresh (list_to_set l) "x"%string) as Hfresh.
+  apply Hfresh.
+  apply elem_of_list_to_set.
+  apply elem_of_list_In.
+  exact Hin.
+Qed.
+
 Lemma var_lookup_store_add :
   forall Γ l t v x,
     var_ctx_lookup (Γ ,,s l ↦ (t, v)) x = var_ctx_lookup Γ x.
@@ -1151,6 +1604,42 @@ Axiom preservation_left_stepctx_assumption :
     has_type Γ1 (plug E e) τ ->
     step (Γ1, e) (Γ2, e') ->
     has_type Γ2 (plug E e') τ.
+
+Fixpoint compose_eval_ctx (E1 E2 : eval_ctx) : eval_ctx :=
+  match E1 with
+  | ECHole => E2
+  | ECAppL E e2 => ECAppL (compose_eval_ctx E E2) e2
+  | ECAppR v1 E => ECAppR v1 (compose_eval_ctx E E2)
+  | ECPairL E e2 => ECPairL (compose_eval_ctx E E2) e2
+  | ECPairR v1 E => ECPairR v1 (compose_eval_ctx E E2)
+  | ECFst E => ECFst (compose_eval_ctx E E2)
+  | ECSnd E => ECSnd (compose_eval_ctx E E2)
+  | ECIf E e2 e3 => ECIf (compose_eval_ctx E E2) e2 e3
+  | ECNewRef t E => ECNewRef t (compose_eval_ctx E E2)
+  | ECGet E => ECGet (compose_eval_ctx E E2)
+  | ECSetL E e2 => ECSetL (compose_eval_ctx E E2) e2
+  | ECSetR v1 E => ECSetR v1 (compose_eval_ctx E E2)
+  | ECPlusL E e2 => ECPlusL (compose_eval_ctx E E2) e2
+  | ECPlusR v1 E => ECPlusR v1 (compose_eval_ctx E E2)
+  | ECNot E => ECNot (compose_eval_ctx E E2)
+  | ECAndL E e2 => ECAndL (compose_eval_ctx E E2) e2
+  | ECAndR v1 E => ECAndR v1 (compose_eval_ctx E E2)
+  | ECOrL E e2 => ECOrL (compose_eval_ctx E E2) e2
+  | ECOrR v1 E => ECOrR v1 (compose_eval_ctx E E2)
+  | ECImpL E e2 => ECImpL (compose_eval_ctx E E2) e2
+  | ECImpR v1 E => ECImpR v1 (compose_eval_ctx E E2)
+  | ECEqL E e2 => ECEqL (compose_eval_ctx E E2) e2
+  | ECEqR v1 E => ECEqR v1 (compose_eval_ctx E E2)
+  end.
+
+Lemma plug_compose_eval_ctx :
+  forall E1 E2 e,
+    plug E1 (plug E2 e) = plug (compose_eval_ctx E1 E2) e.
+Proof.
+  induction E1; intros E2 e; simpl; try rewrite IHE1; reflexivity.
+Qed.
+
+
 
 (* When l is fresh in Γ, the store extension Γ ,,s l ↦ (t,v) equals
    add_ctx (ctx_add_store empty_ctx l t v) Γ.  This expresses the fresh
@@ -1381,6 +1870,104 @@ Proof.
     match goal with
     | Hsub : has_type_pure Γ (plug E e) (TBase ?tb) |- _ => exact (IHE _ _ Hsub)
     end.
+Qed.
+
+Lemma value_preserved_by_add_var_none :
+  forall G x tx witness v,
+    var_ctx_lookup G x = None ->
+    value G v ->
+    value (ctx_add_var G x tx witness) v.
+Proof.
+  intros G x tx witness v Hnone Hv.
+  induction Hv.
+  - apply DTDT.machine_inter.VNat.
+  - apply DTDT.machine_inter.VBool.
+  - apply DTDT.machine_inter.VUnit.
+  - apply DTDT.machine_inter.VString.
+  - eapply DTDT.machine_inter.VConst.
+    unfold const_ctx_lookup, ctx_add_var in *.
+    simpl in *.
+    exact H.
+  - apply DTDT.machine_inter.VFix.
+  - apply DTDT.machine_inter.VPair; assumption.
+  - eapply DTDT.machine_inter.VVar.
+    unfold var_ctx_lookup, ctx_add_var in *.
+    simpl in *.
+    destruct (String.eq_dec x0 x) as [Heq | Hneq].
+    + subst.
+      rewrite H in Hnone.
+      discriminate.
+    + apply lookup_insert_Some.
+      right.
+      split; [congruence | exact H].
+  - eapply DTDT.machine_inter.VLoc.
+    unfold store_ctx_lookup, ctx_add_var in *.
+    simpl in *.
+    exact H.
+Qed.
+
+Lemma pure_fail_ctx_absurd_runtime_early :
+  forall G E t,
+    has_type_pure G (plug E EFail) t ->
+    False.
+Proof.
+  induction E; intros t Hpure; simpl in *; inversion Hpure; subst; eauto.
+Qed.
+
+Lemma pure_step_preserved_by_add_var_none :
+  forall G1 G2 e e' x tx witness t,
+    step (G1, e) (G2, e') ->
+    has_type_pure G1 e t ->
+    var_ctx_lookup G1 x = None ->
+    step (ctx_add_var G1 x tx witness, e) (ctx_add_var G2 x tx witness, e').
+Proof.
+  intros G1 G2 e e' x tx witness t Hstep.
+  revert t.
+  set (P := fun c1 c2 : ctx * i_expr =>
+    match c1, c2 with
+    | (G1', e1), (G2', e2) =>
+        forall t',
+          has_type_pure G1' e1 t' ->
+          var_ctx_lookup G1' x = None ->
+          step (ctx_add_var G1' x tx witness, e1)
+               (ctx_add_var G2' x tx witness, e2)
+    end).
+  change (P (G1, e) (G2, e')).
+  induction Hstep; unfold P in *; simpl in *; intros t' Hpure' Hnone.
+  - apply StepCtx.
+    match goal with
+    | Hsub : has_type_pure ?G (plug E e0) _ |- _ =>
+        destruct (plug_has_typed_hole_pure G E e0 t' Hsub) as [th Hhole]
+    end.
+    eapply IHHstep.
+    + exact Hhole.
+    + exact Hnone.
+  - eapply StepConst.
+    + unfold const_ctx_lookup, ctx_add_var in *. simpl. exact H.
+    + eapply value_preserved_by_add_var_none; eauto.
+  - inversion Hpure'; subst.
+    destruct (String.eq_dec x0 x) as [Heq | Hneq].
+    + subst. rewrite H in Hnone. discriminate.
+    + eapply StepVar.
+      unfold var_ctx_lookup, ctx_add_var in *. simpl.
+      apply lookup_insert_Some.
+      right.
+      split; [congruence | exact H].
+  - inversion Hpure'. inversion H3; subst.
+  - inversion Hpure'.
+  - inversion Hpure'.
+  - inversion Hpure'.
+  - inversion Hpure'.
+  - inversion Hpure'.
+  - inversion Hpure'.
+  - inversion Hpure'.
+  - exfalso. eapply pure_fail_ctx_absurd_runtime_early. exact Hpure'.
+  - apply StepNot.
+  - apply StepAnd.
+  - apply StepOr.
+  - apply StepImp.
+  - eapply StepEq; eauto.
+  - apply StepPlus.
 Qed.
 
 (* Store updates do not affect entailments that arise in refinement subtyping:
@@ -1627,6 +2214,33 @@ Proof.
   intros Γ c t e v τtop Hrt Hlookup Hval Hty.
   eapply (runtime_ctx_well_typed_const_step _ Hrt); eauto.
 Qed.
+Lemma step_var_preserves_pure_runtime :
+  forall G x tbound vbound ty,
+    runtime_ctx_well_typed G ->
+    var_ctx_lookup G x = Some (tbound, vbound) ->
+    has_type_pure G (EVar x) ty ->
+    has_type_pure G vbound ty.
+Proof.
+  intros G x tbound vbound ty Hrt Hlookup Hpure.
+  inversion Hpure as [x0 tb e0 Hvar Hbeta | | | | | | | | | | | | ]; subst.
+  pose proof (bool_prop_eq_true _ Hbeta) as Hbeta_eq.
+  pose proof ((runtime_ctx_well_typed_var_base_pure _ Hrt) x tb e0 Hvar Hbeta_eq) as Hpv.
+  rewrite Hlookup in Hvar.
+  inversion Hvar; subst.
+  exact Hpv.
+Qed.
+
+Lemma step_const_preserves_pure_runtime :
+  forall G c t e v ty,
+    runtime_ctx_well_typed G ->
+    const_ctx_lookup G c = Some (t, e) ->
+    value G v ->
+    has_type_pure G (EApp (EConst c) v) ty ->
+    has_type_pure G e ty.
+Proof.
+  intros G c t e v ty Hrt Hlookup Hval Hpure.
+  eapply (runtime_ctx_well_typed_const_step_pure _ Hrt); eauto.
+Qed.
 
 Lemma ref_type_origin_payload_has_type_forward :
   forall Γ τstore τout v,
@@ -1740,16 +2354,8 @@ Proof.
   - eapply TSnd. exact (IHHty Hlookup).
   - eapply TIf.
     + apply has_type_pure_store_update. exact H.
-    + rewrite ctx_add_var_store_comm.
-      apply IHHty1.
-      unfold store_ctx_lookup, ctx_add_var in *.
-      simpl in *.
-      exact Hlookup.
-    + rewrite ctx_add_var_store_comm.
-      apply IHHty2.
-      unfold store_ctx_lookup, ctx_add_var in *.
-      simpl in *.
-      exact Hlookup.
+    + apply IHHty1. exact Hlookup.
+    + apply IHHty2. exact Hlookup.
   - eapply TSelf.
     + exact (IHHty Hlookup).
     + intros τ₁.
@@ -1765,6 +2371,296 @@ Proof.
           apply subtype_store_update with (oldv := oldv);
           [exact Hlookup | exact Hsub]
       end.
+Qed.
+
+Lemma has_type_preserved_by_step_ctx_change :
+  forall G1 G2 e e'' q tq,
+    step (G1, e) (G2, e'') ->
+    has_type G1 q tq ->
+    has_type G2 q tq.
+Proof.
+  intros G1 G2 e e'' q tq Hstep.
+  revert q tq.
+  dependent induction Hstep; intros q tq Hty.
+  - eapply IHHstep; [reflexivity | reflexivity | exact Hty].
+  - exact Hty.
+  - exact Hty.
+  - exact Hty.
+  - exact Hty.
+  - exact Hty.
+  - exact Hty.
+  - exact Hty.
+  - eapply has_type_store_extension_fresh; eauto.
+  - exact Hty.
+  - eapply has_type_store_update_same_type; eauto.
+  - exact Hty.
+  - exact Hty.
+  - exact Hty.
+  - exact Hty.
+  - exact Hty.
+  - exact Hty.
+  - exact Hty.
+Qed.
+
+Lemma ty_valid_preserved_by_step_ctx_change :
+  forall G1 G2 e e'' t,
+    step (G1, e) (G2, e'') ->
+    ty_valid G1 t ->
+    ty_valid G2 t.
+Proof.
+  intros G1 G2 e e'' t Hstep.
+  dependent induction Hstep; intro Hvalid.
+  - eapply IHHstep; [reflexivity | reflexivity | exact Hvalid].
+  - exact Hvalid.
+  - exact Hvalid.
+  - exact Hvalid.
+  - exact Hvalid.
+  - exact Hvalid.
+  - exact Hvalid.
+  - exact Hvalid.
+  - eapply ty_valid_store_extension_fresh; eauto.
+  - exact Hvalid.
+  - eapply ty_valid_store_update; exact Hvalid.
+  - exact Hvalid.
+  - exact Hvalid.
+  - exact Hvalid.
+  - exact Hvalid.
+  - exact Hvalid.
+  - exact Hvalid.
+  - exact Hvalid.
+Qed.
+
+
+
+Lemma has_type_pure_preserved_by_step_ctx_change :
+  forall G1 G2 e e'' q tq,
+    step (G1, e) (G2, e'') ->
+    has_type_pure G1 q tq ->
+    has_type_pure G2 q tq.
+Proof.
+  intros G1 G2 e e'' q tq Hstep.
+  revert q tq.
+  dependent induction Hstep; intros q tq Hty.
+  - eapply IHHstep; [reflexivity | reflexivity | exact Hty].
+  - exact Hty.
+  - exact Hty.
+  - exact Hty.
+  - exact Hty.
+  - exact Hty.
+  - exact Hty.
+  - exact Hty.
+  - eapply has_type_pure_store_update.
+    exact Hty.
+  - exact Hty.
+  - eapply has_type_pure_store_update.
+    exact Hty.
+  - exact Hty.
+  - exact Hty.
+  - exact Hty.
+  - exact Hty.
+  - exact Hty.
+  - exact Hty.
+  - exact Hty.
+Qed.
+
+
+Lemma pure_fail_ctx_absurd_runtime :
+  forall G E t,
+    has_type_pure G (plug E EFail) t ->
+    False.
+Proof.
+  induction E; intros t Hpure; simpl in *; inversion Hpure; subst; eauto.
+Qed.
+
+Lemma pure_step_ctx_preservation_runtime :
+  forall G1 G2 e e' E t,
+    step (G1, e) (G2, e') ->
+    (forall t0, has_type_pure G1 e t0 -> has_type_pure G2 e' t0) ->
+    has_type_pure G1 (plug E e) t ->
+    has_type_pure G2 (plug E e') t.
+Proof.
+  intros G1 G2 e e' E t Hstep Hinner.
+  revert t.
+  induction E; intros t Hpure; simpl in *; try solve [inversion Hpure].
+  - exact (Hinner _ Hpure).
+  - inversion Hpure; subst.
+    eapply PApp.
+    + exact H1.
+    + match goal with
+      | Hsub : has_type_pure G1 (plug E e) (TArr _ _) |- _ => exact (IHE _ Hsub)
+      end.
+    + match goal with
+      | Hsub : has_type_pure G1 _ _ |- _ =>
+          eapply has_type_pure_preserved_by_step_ctx_change; [exact Hstep | exact Hsub]
+      end.
+  - inversion Hpure; subst.
+    eapply PApp.
+    + exact H1.
+    + match goal with
+      | Hsub : has_type_pure G1 _ _ |- _ =>
+          eapply has_type_pure_preserved_by_step_ctx_change; [exact Hstep | exact Hsub]
+      end.
+    + match goal with
+      | Hsub : has_type_pure G1 (plug E e) _ |- _ => exact (IHE _ Hsub)
+      end.
+  - inversion Hpure; subst.
+    eapply PPlus.
+    + match goal with
+      | Hsub : has_type_pure G1 (plug E e) (TBase BNat) |- _ => exact (IHE _ Hsub)
+      end.
+    + match goal with
+      | Hsub : has_type_pure G1 _ (TBase BNat) |- _ =>
+          eapply has_type_pure_preserved_by_step_ctx_change; [exact Hstep | exact Hsub]
+      end.
+  - inversion Hpure; subst.
+    eapply PPlus.
+    + match goal with
+      | Hsub : has_type_pure G1 _ (TBase BNat) |- _ =>
+          eapply has_type_pure_preserved_by_step_ctx_change; [exact Hstep | exact Hsub]
+      end.
+    + match goal with
+      | Hsub : has_type_pure G1 (plug E e) (TBase BNat) |- _ => exact (IHE _ Hsub)
+      end.
+  - inversion Hpure; subst.
+    eapply PNot.
+    match goal with
+    | Hsub : has_type_pure G1 (plug E e) (TBase BBool) |- _ => exact (IHE _ Hsub)
+    end.
+  - inversion Hpure; subst.
+    eapply PAnd.
+    + match goal with
+      | Hsub : has_type_pure G1 (plug E e) (TBase BBool) |- _ => exact (IHE _ Hsub)
+      end.
+    + match goal with
+      | Hsub : has_type_pure G1 _ (TBase BBool) |- _ =>
+          eapply has_type_pure_preserved_by_step_ctx_change; [exact Hstep | exact Hsub]
+      end.
+  - inversion Hpure; subst.
+    eapply PAnd.
+    + match goal with
+      | Hsub : has_type_pure G1 _ (TBase BBool) |- _ =>
+          eapply has_type_pure_preserved_by_step_ctx_change; [exact Hstep | exact Hsub]
+      end.
+    + match goal with
+      | Hsub : has_type_pure G1 (plug E e) (TBase BBool) |- _ => exact (IHE _ Hsub)
+      end.
+  - inversion Hpure; subst.
+    eapply POr.
+    + match goal with
+      | Hsub : has_type_pure G1 (plug E e) (TBase BBool) |- _ => exact (IHE _ Hsub)
+      end.
+    + match goal with
+      | Hsub : has_type_pure G1 _ (TBase BBool) |- _ =>
+          eapply has_type_pure_preserved_by_step_ctx_change; [exact Hstep | exact Hsub]
+      end.
+  - inversion Hpure; subst.
+    eapply POr.
+    + match goal with
+      | Hsub : has_type_pure G1 _ (TBase BBool) |- _ =>
+          eapply has_type_pure_preserved_by_step_ctx_change; [exact Hstep | exact Hsub]
+      end.
+    + match goal with
+      | Hsub : has_type_pure G1 (plug E e) (TBase BBool) |- _ => exact (IHE _ Hsub)
+      end.
+  - inversion Hpure; subst.
+    eapply PImp.
+    + match goal with
+      | Hsub : has_type_pure G1 (plug E e) (TBase BBool) |- _ => exact (IHE _ Hsub)
+      end.
+    + match goal with
+      | Hsub : has_type_pure G1 _ (TBase BBool) |- _ =>
+          eapply has_type_pure_preserved_by_step_ctx_change; [exact Hstep | exact Hsub]
+      end.
+  - inversion Hpure; subst.
+    eapply PImp.
+    + match goal with
+      | Hsub : has_type_pure G1 _ (TBase BBool) |- _ =>
+          eapply has_type_pure_preserved_by_step_ctx_change; [exact Hstep | exact Hsub]
+      end.
+    + match goal with
+      | Hsub : has_type_pure G1 (plug E e) (TBase BBool) |- _ => exact (IHE _ Hsub)
+      end.
+  - inversion Hpure; subst.
+    match goal with
+    | Hsub : has_type_pure G1 (plug E e) (TBase ?tb) |- _ =>
+        match goal with
+        | Hother : has_type_pure G1 ?er (TBase tb) |- _ =>
+            eapply (PEq G2 (plug E e') er tb);
+            [ exact (IHE _ Hsub)
+            | eapply has_type_pure_preserved_by_step_ctx_change; [exact Hstep | exact Hother] ]
+        end
+    end.
+  - inversion Hpure; subst.
+    match goal with
+    | Hsub : has_type_pure G1 (plug E e) (TBase ?tb) |- _ =>
+        match goal with
+        | Hother : has_type_pure G1 ?el (TBase tb) |- _ =>
+            eapply (PEq G2 el (plug E e') tb);
+            [ eapply has_type_pure_preserved_by_step_ctx_change; [exact Hstep | exact Hother]
+            | exact (IHE _ Hsub) ]
+        end
+    end.
+Qed.
+
+Lemma preservation_pure_terms_runtime_sigma :
+  forall sigma1 sigma2,
+    step sigma1 sigma2 ->
+    runtime_ctx_well_typed (fst sigma1) ->
+    forall ty,
+      has_type_pure (fst sigma1) (snd sigma1) ty ->
+      has_type_pure (fst sigma2) (snd sigma2) ty.
+Proof.
+  intros sigma1 sigma2 Hstep.
+  induction Hstep; intros Hrt ty Hpure; simpl in *.
+  - eapply pure_step_ctx_preservation_runtime.
+    + exact Hstep.
+    + intros t0 Hinner. eapply IHHstep; eauto.
+    + exact Hpure.
+  - eapply step_const_preserves_pure_runtime; eauto.
+  - eapply step_var_preserves_pure_runtime; eauto.
+  - inversion Hpure; subst; try inversion H1; try inversion H2; try inversion H3.
+  - inversion Hpure; subst; try inversion H1; try inversion H2; try inversion H3.
+  - inversion Hpure; subst; try inversion H1; try inversion H2; try inversion H3.
+  - inversion Hpure; subst; try inversion H1; try inversion H2; try inversion H3.
+  - inversion Hpure; subst; try inversion H1; try inversion H2; try inversion H3.
+  - inversion Hpure; subst; try inversion H1; try inversion H2; try inversion H3.
+  - inversion Hpure; subst; try inversion H1; try inversion H2; try inversion H3.
+  - inversion Hpure; subst; try inversion H1; try inversion H2; try inversion H3.
+  - exfalso. eapply pure_fail_ctx_absurd_runtime. exact Hpure.
+  - inversion Hpure; subst. apply PBool.
+  - inversion Hpure; subst. apply PBool.
+  - inversion Hpure; subst. apply PBool.
+  - inversion Hpure; subst. apply PBool.
+  - inversion Hpure; subst. apply PBool.
+  - inversion Hpure; subst. apply PNat.
+Qed.
+
+Lemma has_type_preserved_by_pure_step_ctx_change_add_var_none :
+  forall G1 G2 e e'' x tx witness q tq t,
+    step (G1, e) (G2, e'') ->
+    has_type_pure G1 e t ->
+    var_ctx_lookup G1 x = None ->
+    has_type (ctx_add_var G1 x tx witness) q tq ->
+    has_type (ctx_add_var G2 x tx witness) q tq.
+Proof.
+  intros G1 G2 e e'' x tx witness q tq t Hstep Hpure Hnone Hty.
+  eapply has_type_preserved_by_step_ctx_change.
+  - eapply pure_step_preserved_by_add_var_none; eauto.
+  - exact Hty.
+Qed.
+
+Lemma has_type_pure_preserved_by_pure_step_ctx_change_add_var_none :
+  forall G1 G2 e e'' x tx witness q tq t,
+    step (G1, e) (G2, e'') ->
+    has_type_pure G1 e t ->
+    var_ctx_lookup G1 x = None ->
+    has_type_pure (ctx_add_var G1 x tx witness) q tq ->
+    has_type_pure (ctx_add_var G2 x tx witness) q tq.
+Proof.
+  intros G1 G2 e e'' x tx witness q tq t Hstep Hpure Hnone Hty.
+  eapply has_type_pure_preserved_by_step_ctx_change.
+  - eapply pure_step_preserved_by_add_var_none; eauto.
+  - exact Hty.
 Qed.
 
 Lemma step_set_preserves_store_well_typed :
@@ -1810,6 +2706,34 @@ Proof.
   rewrite (ctx_add_store_fresh_eq_add_ctx Γ l t v Hfresh).
   apply weakening_subtype_right.
   exact Hsub.
+Qed.
+
+Lemma subtype_preserved_by_step_ctx_change :
+  forall G1 G2 e e'' t1 t2,
+    step (G1, e) (G2, e'') ->
+    subtype G1 t1 t2 ->
+    subtype G2 t1 t2.
+Proof.
+  intros G1 G2 e e'' t1 t2 Hstep.
+  dependent induction Hstep; intro Hsub.
+  - eapply IHHstep; [reflexivity | reflexivity | exact Hsub].
+  - exact Hsub.
+  - exact Hsub.
+  - exact Hsub.
+  - exact Hsub.
+  - exact Hsub.
+  - exact Hsub.
+  - exact Hsub.
+  - eapply subtype_store_extension_fresh; eauto.
+  - exact Hsub.
+  - eapply subtype_store_update; eauto.
+  - exact Hsub.
+  - exact Hsub.
+  - exact Hsub.
+  - exact Hsub.
+  - exact Hsub.
+  - exact Hsub.
+  - exact Hsub.
 Qed.
 
 Lemma no_enewref_has_type_pure :
@@ -1975,6 +2899,44 @@ Proof.
     + exact H.
 Qed.
 
+Lemma step_if_true_preserves_typing :
+  forall G e1 e2 ttop,
+    has_type G (EIf (EBool true) e1 e2) ttop ->
+    has_type G e1 ttop.
+Proof.
+  intros G e1 e2 ttop Hty.
+  remember (EIf (EBool true) e1 e2) as eif eqn:Heqeif.
+  revert e1 e2 Heqeif.
+  induction Hty; intros e1' e2' Heqeif; inversion Heqeif; subst; try discriminate.
+  - exact Hty1.
+  - match goal with
+    | H : forall t1 : i_ty, has_type_pure _ (EIf (EBool true) e1' e2') t1 |- _ =>
+        specialize (H (TBase BNat)); inversion H
+    end.
+  - eapply TSub.
+    + eapply IHHty; reflexivity.
+    + exact H.
+Qed.
+
+Lemma step_if_false_preserves_typing :
+  forall G e1 e2 ttop,
+    has_type G (EIf (EBool false) e1 e2) ttop ->
+    has_type G e2 ttop.
+Proof.
+  intros G e1 e2 ttop Hty.
+  remember (EIf (EBool false) e1 e2) as eif eqn:Heqeif.
+  revert e1 e2 Heqeif.
+  induction Hty; intros e1' e2' Heqeif; inversion Heqeif; subst; try discriminate.
+  - exact Hty2.
+  - match goal with
+    | H : forall t1 : i_ty, has_type_pure _ (EIf (EBool false) e1' e2') t1 |- _ =>
+        specialize (H (TBase BNat)); inversion H
+    end.
+  - eapply TSub.
+    + eapply IHHty; reflexivity.
+    + exact H.
+Qed.
+
 Lemma step_not_preserves_typing :
   forall Γ b τtop,
     has_type Γ (ENot (EBool b)) τtop ->
@@ -2104,8 +3066,8 @@ Proof.
   - eapply preservation_left_stepctx_assumption with (E := ECHole); eauto.
   - eapply step_fst_preserves_typing; eauto.
   - eapply step_snd_preserves_typing; eauto.
-  - eapply preservation_left_stepctx_assumption with (E := ECHole); eauto.
-  - eapply preservation_left_stepctx_assumption with (E := ECHole); eauto.
+  - eapply step_if_true_preserves_typing; exact Hty.
+  - eapply step_if_false_preserves_typing; exact Hty.
   - exfalso.
     match goal with
     | HfreshStore : ~ List.In ?l (store_dom (ctx_add_store ?G ?l ?t ?v)) |- _ =>
@@ -2138,10 +3100,8 @@ Proof.
   intros σ1 σ2 Hstep.
   induction Hstep; intros τgoal Hrt Hty.
   - eapply preservation_left_stepctx_assumption; eauto.
-  - eapply preservation_left_same_ctx_step; eauto.
-    econstructor; eauto.
-  - eapply preservation_left_same_ctx_step; eauto.
-    econstructor; eauto.
+  - eapply step_const_preserves_typing_runtime; eauto.
+  - eapply step_var_preserves_typing; eauto.
   - eapply preservation_left_same_ctx_step; eauto.
     econstructor; eauto.
   - match goal with
@@ -2152,10 +3112,8 @@ Proof.
     | H1 : value _ _, H2 : value _ _ |- _ =>
         eapply (step_snd_preserves_typing _ _ _ _ Hty H1 H2)
     end.
-  - eapply preservation_left_same_ctx_step; eauto.
-    econstructor; eauto.
-  - eapply preservation_left_same_ctx_step; eauto.
-    econstructor; eauto.
+  - eapply step_if_true_preserves_typing; exact Hty.
+  - eapply step_if_false_preserves_typing; exact Hty.
   - eapply step_new_preserves_typing; eauto.
   - eapply step_get_preserves_typing; eauto.
     exact (runtime_ctx_well_typed_store _ Hrt).
@@ -2310,38 +3268,438 @@ Proof.
   exact (preservation_right _ _ _ _ _ (runtime_ctx_well_typed_store _ Hrt) Htype Hstep).
 Qed.
 
+Lemma progress_pure_nobindings :
+  forall G e t,
+    (forall x, var_ctx_lookup G x = None) ->
+    (forall c, const_ctx_lookup G c = None) ->
+    has_type_pure G e t ->
+    DTDT.machine_inter.value G e \/
+    exists e', step (G, e) (G, e').
+Proof.
+  intros G e t HnoneVar HnoneConst Hpure.
+  induction Hpure as
+    [x tau_base witness Hlookup Hbeta
+    | n
+    | b
+    | s
+    | u
+    | c tau body Hlookup Hsimple
+    | e1 e2 tau1 tau2 Hbeta Hfun IHfun Harg IHarg
+    | eb Hbool IHbool
+    | e1 e2 Hbool1 IH1 Hbool2 IH2
+    | e1 e2 Hbool1 IH1 Hbool2 IH2
+    | e1 e2 Hbool1 IH1 Hbool2 IH2
+    | e1 e2 tb Hbase1 IH1 Hbase2 IH2
+    | e1 e2 Hnat1 IH1 Hnat2 IH2].
+  - rewrite HnoneVar in Hlookup. discriminate.
+  - left. constructor.
+  - left. constructor.
+  - left. constructor.
+  - destruct u.
+    match goal with
+    | |- DTDT.machine_inter.value ?Ctx (EUnit tt) \/ _ => left; exact (VUnit Ctx)
+    end.
+  - rewrite HnoneConst in Hlookup. discriminate.
+  - destruct IHfun as [Hv1 | [e1' Hstep1]].
+    + destruct IHarg as [Hv2 | [e2' Hstep2]].
+      * exfalso.
+        eapply (no_simple_arrow_value_nobindings G e1 tau1 tau2 HnoneVar HnoneConst).
+        -- exact (has_type_pure_implies_has_type _ _ _ Hfun).
+        -- exact Hv1.
+      * right. exists (EApp e1 e2').
+        eapply StepCtx with (E := ECAppR e1 ECHole).
+        exact Hstep2.
+    + right. exists (EApp e1' e2).
+      eapply StepCtx with (E := ECAppL ECHole e2).
+      exact Hstep1.
+  - destruct IHbool as [Hv | [e' Hstep]].
+    + pose proof
+        (canonical_forms_bool_essential_nobindings G eb (TBase BBool)
+          HnoneVar HnoneConst
+          (has_type_pure_implies_has_type _ _ _ Hbool) Hv eq_refl) as Hb.
+      destruct Hb as [Hb | Hb]; subst.
+      * right. exists (EBool false). apply StepNot.
+      * right. exists (EBool true). apply StepNot.
+    + right. exists (ENot e').
+      eapply StepCtx with (E := ECNot ECHole).
+      exact Hstep.
+  - destruct IH1 as [Hv1 | [e1' Hstep1]].
+    + destruct IH2 as [Hv2 | [e2' Hstep2]].
+      * pose proof
+          (canonical_forms_bool_essential_nobindings G e1 (TBase BBool)
+            HnoneVar HnoneConst
+            (has_type_pure_implies_has_type _ _ _ Hbool1) Hv1 eq_refl) as Hb1.
+        pose proof
+          (canonical_forms_bool_essential_nobindings G e2 (TBase BBool)
+            HnoneVar HnoneConst
+            (has_type_pure_implies_has_type _ _ _ Hbool2) Hv2 eq_refl) as Hb2.
+        destruct Hb1 as [Hb1 | Hb1]; destruct Hb2 as [Hb2 | Hb2]; subst;
+          right; eexists; apply StepImp.
+      * right. exists (EImp e1 e2').
+        eapply StepCtx with (E := ECImpR e1 ECHole).
+        exact Hstep2.
+    + right. exists (EImp e1' e2).
+      eapply StepCtx with (E := ECImpL ECHole e2).
+      exact Hstep1.
+  - destruct IH1 as [Hv1 | [e1' Hstep1]].
+    + destruct IH2 as [Hv2 | [e2' Hstep2]].
+      * pose proof
+          (canonical_forms_bool_essential_nobindings G e1 (TBase BBool)
+            HnoneVar HnoneConst
+            (has_type_pure_implies_has_type _ _ _ Hbool1) Hv1 eq_refl) as Hb1.
+        pose proof
+          (canonical_forms_bool_essential_nobindings G e2 (TBase BBool)
+            HnoneVar HnoneConst
+            (has_type_pure_implies_has_type _ _ _ Hbool2) Hv2 eq_refl) as Hb2.
+        destruct Hb1 as [Hb1 | Hb1]; destruct Hb2 as [Hb2 | Hb2]; subst;
+          right; eexists; apply StepAnd.
+      * right. exists (EAnd e1 e2').
+        eapply StepCtx with (E := ECAndR e1 ECHole).
+        exact Hstep2.
+    + right. exists (EAnd e1' e2).
+      eapply StepCtx with (E := ECAndL ECHole e2).
+      exact Hstep1.
+  - destruct IH1 as [Hv1 | [e1' Hstep1]].
+    + destruct IH2 as [Hv2 | [e2' Hstep2]].
+      * pose proof
+          (canonical_forms_bool_essential_nobindings G e1 (TBase BBool)
+            HnoneVar HnoneConst
+            (has_type_pure_implies_has_type _ _ _ Hbool1) Hv1 eq_refl) as Hb1.
+        pose proof
+          (canonical_forms_bool_essential_nobindings G e2 (TBase BBool)
+            HnoneVar HnoneConst
+            (has_type_pure_implies_has_type _ _ _ Hbool2) Hv2 eq_refl) as Hb2.
+        destruct Hb1 as [Hb1 | Hb1]; destruct Hb2 as [Hb2 | Hb2]; subst;
+          right; eexists; apply StepOr.
+      * right. exists (EOr e1 e2').
+        eapply StepCtx with (E := ECOrR e1 ECHole).
+        exact Hstep2.
+    + right. exists (EOr e1' e2).
+      eapply StepCtx with (E := ECOrL ECHole e2).
+      exact Hstep1.
+  - destruct IH1 as [Hv1 | [e1' Hstep1]].
+    + destruct IH2 as [Hv2 | [e2' Hstep2]].
+      * pose proof
+          (canonical_forms_base_essential_nobindings G e1 (TBase tb) tb
+            HnoneVar HnoneConst
+            (has_type_pure_implies_has_type _ _ _ Hbase1) Hv1 eq_refl) as Hb1.
+        pose proof
+          (canonical_forms_base_essential_nobindings G e2 (TBase tb) tb
+            HnoneVar HnoneConst
+            (has_type_pure_implies_has_type _ _ _ Hbase2) Hv2 eq_refl) as Hb2.
+        destruct (base_eq e1 e2) eqn:Hbeq.
+        -- right. exists (EBool true). eapply StepEq; eauto.
+        -- right. exists (EBool false). eapply StepEq; eauto.
+      * right. exists (EEq e1 e2').
+        eapply StepCtx with (E := ECEqR e1 ECHole).
+        exact Hstep2.
+    + right. exists (EEq e1' e2).
+      eapply StepCtx with (E := ECEqL ECHole e2).
+      exact Hstep1.
+  - destruct IH1 as [Hv1 | [e1' Hstep1]].
+    + destruct IH2 as [Hv2 | [e2' Hstep2]].
+      * destruct
+          (canonical_forms_nat_essential_nobindings G e1 (TBase BNat)
+            HnoneVar HnoneConst
+            (has_type_pure_implies_has_type _ _ _ Hnat1) Hv1 eq_refl) as [n1 Heq1].
+        destruct
+          (canonical_forms_nat_essential_nobindings G e2 (TBase BNat)
+            HnoneVar HnoneConst
+            (has_type_pure_implies_has_type _ _ _ Hnat2) Hv2 eq_refl) as [n2 Heq2].
+        subst. right. exists (ENat (n1 + n2)). apply StepPlus.
+      * right. exists (EPlus e1 e2').
+        eapply StepCtx with (E := ECPlusR e1 ECHole).
+        exact Hstep2.
+    + right. exists (EPlus e1' e2).
+      eapply StepCtx with (E := ECPlusL ECHole e2).
+      exact Hstep1.
+Qed.
+
+Lemma progress_store_typed_ctx_nobindings :
+  forall G e t,
+    store_well_typed G ->
+    (forall x, var_ctx_lookup G x = None) ->
+    (forall c, const_ctx_lookup G c = None) ->
+    has_type G e t ->
+    DTDT.machine_inter.value G e \/
+    e = EFail \/
+    exists G' e', step (G, e) (G', e').
+Proof.
+  intros G e t Hstore HnoneVar HnoneConst Hty.
+  induction Hty as
+    [G0 s
+    | G0 n
+    | G0 b
+    | G0 u
+    | G0 c t body Hlookup
+    | G0 x t body Hlookup
+    | G0 x t body Hlookup Hbeta
+    | G0 l t stored Hlookup
+    | G0 t Hvalid
+    | G0 f x t1 t2 body Hvalid Hbody IHbody
+    | G0 e1 e2 x t1 t2 Harg IHarg Hpure Hfun IHfun
+    | G0 e1 e2 t1 t2 Harg IHarg Hfun IHfun
+    | G0 e1 e2 Hnat1 IH1 Hnat2 IH2
+    | G0 eb Hbool IHbool
+    | G0 e1 e2 Hbool1 IH1 Hbool2 IH2
+    | G0 e1 e2 Hbool1 IH1 Hbool2 IH2
+    | G0 e1 e2 Hbool1 IH1 Hbool2 IH2
+    | G0 e1 e2 tb Hbase1 IH1 Hbase2 IH2
+    | G0 t e Hvalid Hinner IHinner
+    | G0 e t Href IHref
+    | G0 e1 e2 t Href IHref Hval IHval
+    | G0 e1 e2 t1 t2 H1 IH1 H2 IH2
+    | G0 e t1 t2 Hpair IHpair
+    | G0 e t1 t2 Hpair IHpair
+    | G0 cond e1 e2 t Hcond Hthen IHthen Helse IHelse
+    | G0 e t Hinner IHinner Hpure
+    | G0 e t t' Hinner IHinner Hsub].
+  - left. apply VString.
+  - left. apply VNat.
+  - left. apply VBool.
+  - repeat match goal with u : unit |- _ => destruct u end.
+    left. apply VUnit.
+  - rewrite HnoneConst in Hlookup. discriminate.
+  - rewrite HnoneVar in Hlookup. discriminate.
+  - rewrite HnoneVar in Hlookup. discriminate.
+  - left. econstructor. exact Hlookup.
+  - right. left. reflexivity.
+  - left. econstructor.
+  - destruct (IHfun Hstore HnoneVar HnoneConst) as [Hvfun | [Hfailfun | [G1 [e1' Hstep1]]]].
+    + pose proof (progress_pure_nobindings G0 e2 t1 HnoneVar HnoneConst (Hpure t1)) as Hargprog.
+      destruct Hargprog as [Hvarg | [e2' Hstep2]].
+      * destruct (canonical_forms_fun_dep_nobindings G0 e1 x t1 t2 HnoneVar HnoneConst Hfun Hvfun)
+          as [f' [y [t1' [t2' [body' Heqfun]]]]].
+        subst.
+        right. right. exists G0.
+        exists (expr_subst_fun f' (EFix f' y t1' t2' body') (expr_subst y e2 body')).
+        apply StepFix. exact Hvarg.
+      * right. right. exists G0. exists (EApp e1 e2').
+        eapply StepCtx with (E := ECAppR e1 ECHole).
+        exact Hstep2.
+    + subst. right. right. exists G0. exists EFail.
+      eapply StepFail with (E := ECAppL ECHole e2).
+    + right. right. exists G1. exists (EApp e1' e2).
+      eapply StepCtx with (E := ECAppL ECHole e2).
+      exact Hstep1.
+  - destruct (IHfun Hstore HnoneVar HnoneConst) as [Hvfun | [Hfailfun | [G1 [e1' Hstep1]]]].
+    + exfalso.
+      eapply (no_simple_arrow_value_nobindings G0 e1 t1 t2 HnoneVar HnoneConst);
+        eauto.
+    + subst. right. right. exists G0. exists EFail.
+      eapply StepFail with (E := ECAppL ECHole e2).
+    + right. right. exists G1. exists (EApp e1' e2).
+      eapply StepCtx with (E := ECAppL ECHole e2).
+      exact Hstep1.
+  - destruct (IH1 Hstore HnoneVar HnoneConst) as [Hv1 | [Hfail1 | [G1 [e1' Hstep1]]]].
+    + destruct (IH2 Hstore HnoneVar HnoneConst) as [Hv2 | [Hfail2 | [G2 [e2' Hstep2]]]].
+      * destruct (canonical_forms_nat_essential_nobindings G0 e1 (TBase BNat)
+          HnoneVar HnoneConst Hnat1 Hv1 eq_refl) as [n1 Heq1].
+        destruct (canonical_forms_nat_essential_nobindings G0 e2 (TBase BNat)
+          HnoneVar HnoneConst Hnat2 Hv2 eq_refl) as [n2 Heq2].
+        subst. right. right. exists G0. exists (ENat (n1 + n2)).
+        apply StepPlus.
+      * subst. right. right. exists G0. exists EFail.
+        eapply StepFail with (E := ECPlusR e1 ECHole).
+      * right. right. exists G2. exists (EPlus e1 e2').
+        eapply StepCtx with (E := ECPlusR e1 ECHole).
+        exact Hstep2.
+    + subst. right. right. exists G0. exists EFail.
+      eapply StepFail with (E := ECPlusL ECHole e2).
+    + right. right. exists G1. exists (EPlus e1' e2).
+      eapply StepCtx with (E := ECPlusL ECHole e2).
+      exact Hstep1.
+  - destruct (IHbool Hstore HnoneVar HnoneConst) as [Hv | [Hfail | [G1 [eb' Hstep]]]].
+    + destruct (canonical_forms_bool_essential_nobindings G0 eb (TBase BBool)
+        HnoneVar HnoneConst Hbool Hv eq_refl) as [Hb | Hb]; subst.
+      * right. right. exists G0. exists (EBool false).
+        apply StepNot.
+      * right. right. exists G0. exists (EBool true).
+        apply StepNot.
+    + subst. right. right. exists G0. exists EFail.
+      eapply StepFail with (E := ECNot ECHole).
+    + right. right. exists G1. exists (ENot eb').
+      eapply StepCtx with (E := ECNot ECHole).
+      exact Hstep.
+  - destruct (IH1 Hstore HnoneVar HnoneConst) as [Hv1 | [Hfail1 | [G1 [e1' Hstep1]]]].
+    + destruct (IH2 Hstore HnoneVar HnoneConst) as [Hv2 | [Hfail2 | [G2 [e2' Hstep2]]]].
+      * destruct (canonical_forms_bool_essential_nobindings G0 e1 (TBase BBool)
+          HnoneVar HnoneConst Hbool1 Hv1 eq_refl) as [Hb1 | Hb1];
+        destruct (canonical_forms_bool_essential_nobindings G0 e2 (TBase BBool)
+          HnoneVar HnoneConst Hbool2 Hv2 eq_refl) as [Hb2 | Hb2];
+        subst; right; right; exists G0; eexists; apply StepImp.
+      * subst. right. right. exists G0. exists EFail.
+        eapply StepFail with (E := ECImpR e1 ECHole).
+      * right. right. exists G2. exists (EImp e1 e2').
+        eapply StepCtx with (E := ECImpR e1 ECHole).
+        exact Hstep2.
+    + subst. right. right. exists G0. exists EFail.
+      eapply StepFail with (E := ECImpL ECHole e2).
+    + right. right. exists G1. exists (EImp e1' e2).
+      eapply StepCtx with (E := ECImpL ECHole e2).
+      exact Hstep1.
+  - destruct (IH1 Hstore HnoneVar HnoneConst) as [Hv1 | [Hfail1 | [G1 [e1' Hstep1]]]].
+    + destruct (IH2 Hstore HnoneVar HnoneConst) as [Hv2 | [Hfail2 | [G2 [e2' Hstep2]]]].
+      * destruct (canonical_forms_bool_essential_nobindings G0 e1 (TBase BBool)
+          HnoneVar HnoneConst Hbool1 Hv1 eq_refl) as [Hb1 | Hb1];
+        destruct (canonical_forms_bool_essential_nobindings G0 e2 (TBase BBool)
+          HnoneVar HnoneConst Hbool2 Hv2 eq_refl) as [Hb2 | Hb2];
+        subst; right; right; exists G0; eexists; apply StepAnd.
+      * subst. right. right. exists G0. exists EFail.
+        eapply StepFail with (E := ECAndR e1 ECHole).
+      * right. right. exists G2. exists (EAnd e1 e2').
+        eapply StepCtx with (E := ECAndR e1 ECHole).
+        exact Hstep2.
+    + subst. right. right. exists G0. exists EFail.
+      eapply StepFail with (E := ECAndL ECHole e2).
+    + right. right. exists G1. exists (EAnd e1' e2).
+      eapply StepCtx with (E := ECAndL ECHole e2).
+      exact Hstep1.
+  - destruct (IH1 Hstore HnoneVar HnoneConst) as [Hv1 | [Hfail1 | [G1 [e1' Hstep1]]]].
+    + destruct (IH2 Hstore HnoneVar HnoneConst) as [Hv2 | [Hfail2 | [G2 [e2' Hstep2]]]].
+      * destruct (canonical_forms_bool_essential_nobindings G0 e1 (TBase BBool)
+          HnoneVar HnoneConst Hbool1 Hv1 eq_refl) as [Hb1 | Hb1];
+        destruct (canonical_forms_bool_essential_nobindings G0 e2 (TBase BBool)
+          HnoneVar HnoneConst Hbool2 Hv2 eq_refl) as [Hb2 | Hb2];
+        subst; right; right; exists G0; eexists; apply StepOr.
+      * subst. right. right. exists G0. exists EFail.
+        eapply StepFail with (E := ECOrR e1 ECHole).
+      * right. right. exists G2. exists (EOr e1 e2').
+        eapply StepCtx with (E := ECOrR e1 ECHole).
+        exact Hstep2.
+    + subst. right. right. exists G0. exists EFail.
+      eapply StepFail with (E := ECOrL ECHole e2).
+    + right. right. exists G1. exists (EOr e1' e2).
+      eapply StepCtx with (E := ECOrL ECHole e2).
+      exact Hstep1.
+  - destruct (IH1 Hstore HnoneVar HnoneConst) as [Hv1 | [Hfail1 | [G1 [e1' Hstep1]]]].
+    + destruct (IH2 Hstore HnoneVar HnoneConst) as [Hv2 | [Hfail2 | [G2 [e2' Hstep2]]]].
+      * pose proof (canonical_forms_base_essential_nobindings G0 e1 (TBase tb) tb
+          HnoneVar HnoneConst Hbase1 Hv1 eq_refl) as Hb1.
+        pose proof (canonical_forms_base_essential_nobindings G0 e2 (TBase tb) tb
+          HnoneVar HnoneConst Hbase2 Hv2 eq_refl) as Hb2.
+        destruct (base_eq e1 e2) eqn:Hbeq.
+        -- right. right. exists G0. exists (EBool true).
+           eapply StepEq; eauto.
+        -- right. right. exists G0. exists (EBool false).
+           eapply StepEq; eauto.
+      * subst. right. right. exists G0. exists EFail.
+        eapply StepFail with (E := ECEqR e1 ECHole).
+      * right. right. exists G2. exists (EEq e1 e2').
+        eapply StepCtx with (E := ECEqR e1 ECHole).
+        exact Hstep2.
+    + subst. right. right. exists G0. exists EFail.
+      eapply StepFail with (E := ECEqL ECHole e2).
+    + right. right. exists G1. exists (EEq e1' e2).
+      eapply StepCtx with (E := ECEqL ECHole e2).
+      exact Hstep1.
+  - destruct (IHinner Hstore HnoneVar HnoneConst) as [Hv | [Hfail | [G1 [e' Hstep]]]].
+    + set (l := fresh_string_list (var_dom G0 ++ store_dom G0)).
+      assert (~ In l (var_dom G0 ++ store_dom G0)) as Hfresh.
+      { subst l. apply fresh_string_list_not_in. }
+      assert (~ In l (var_dom G0)) as HfreshVar.
+      { intro Hin. apply Hfresh. apply in_or_app. left. exact Hin. }
+      assert (~ In l (store_dom G0)) as HfreshStore.
+      { intro Hin. apply Hfresh. apply in_or_app. right. exact Hin. }
+      right. right. exists (ctx_add_store G0 l t e). exists (ELoc l).
+      apply StepNew; assumption.
+    + subst. right. right. exists G0. exists EFail.
+      eapply StepFail with (E := ECNewRef t ECHole).
+    + right. right. exists G1. exists (ENewRef t e').
+      eapply StepCtx with (E := ECNewRef t ECHole).
+      exact Hstep.
+  - destruct (IHref Hstore HnoneVar HnoneConst) as [Hv | [Hfail | [G1 [e' Hstep]]]].
+    + destruct (canonical_forms_ref_nobindings G0 e t HnoneVar HnoneConst Href Hv)
+        as [l [stored_t [stored [Heq Hlookup]]]].
+      subst. right. right. exists G0. exists stored.
+      eapply StepGet. exact Hlookup.
+    + subst. right. right. exists G0. exists EFail.
+      eapply StepFail with (E := ECGet ECHole).
+    + right. right. exists G1. exists (EGet e').
+      eapply StepCtx with (E := ECGet ECHole).
+      exact Hstep.
+  - destruct (IHref Hstore HnoneVar HnoneConst) as [Hv1 | [Hfail1 | [G1 [e1' Hstep1]]]].
+    + destruct (IHval Hstore HnoneVar HnoneConst) as [Hv2 | [Hfail2 | [G2 [e2' Hstep2]]]].
+      * destruct (canonical_forms_ref_nobindings G0 e1 t HnoneVar HnoneConst Href Hv1)
+          as [l [stored_t [stored [Heq Hlookup]]]].
+        subst. right. right. exists (ctx_add_store G0 l stored_t e2). exists (EUnit tt).
+        eapply StepSet.
+        -- exact Hv2.
+        -- exact Hlookup.
+      * subst. right. right. exists G0. exists EFail.
+        eapply StepFail with (E := ECSetR e1 ECHole).
+      * right. right. exists G2. exists (ESet e1 e2').
+        eapply StepCtx with (E := ECSetR e1 ECHole).
+        exact Hstep2.
+    + subst. right. right. exists G0. exists EFail.
+      eapply StepFail with (E := ECSetL ECHole e2).
+    + right. right. exists G1. exists (ESet e1' e2).
+      eapply StepCtx with (E := ECSetL ECHole e2).
+      exact Hstep1.
+  - destruct (IH1 Hstore HnoneVar HnoneConst) as [Hv1 | [Hfail1 | [G1 [e1' Hstep1]]]].
+    + destruct (IH2 Hstore HnoneVar HnoneConst) as [Hv2 | [Hfail2 | [G2 [e2' Hstep2]]]].
+      * left. exact (DTDT.machine_inter.VPair G0 e1 e2 Hv1 Hv2).
+      * subst. right. right. exists G0. exists EFail.
+        eapply StepFail with (E := ECPairR e1 ECHole).
+      * right. right. exists G2. exists (EPair e1 e2').
+        eapply StepCtx with (E := ECPairR e1 ECHole).
+        exact Hstep2.
+    + subst. right. right. exists G0. exists EFail.
+      eapply StepFail with (E := ECPairL ECHole e2).
+    + right. right. exists G1. exists (EPair e1' e2).
+      eapply StepCtx with (E := ECPairL ECHole e2).
+      exact Hstep1.
+  - destruct (IHpair Hstore HnoneVar HnoneConst) as [Hv | [Hfail | [G1 [e' Hstep]]]].
+    + destruct (canonical_forms_pair_nobindings G0 e t1 t2 HnoneVar HnoneConst Hpair Hv)
+        as [v1 [v2 Heq]].
+      subst. inversion Hv; subst.
+      right. right. exists G0. exists v1.
+      apply StepFst; assumption.
+    + subst. right. right. exists G0. exists EFail.
+      eapply StepFail with (E := ECFst ECHole).
+    + right. right. exists G1. exists (EFst e').
+      eapply StepCtx with (E := ECFst ECHole).
+      exact Hstep.
+  - destruct (IHpair Hstore HnoneVar HnoneConst) as [Hv | [Hfail | [G1 [e' Hstep]]]].
+    + destruct (canonical_forms_pair_nobindings G0 e t1 t2 HnoneVar HnoneConst Hpair Hv)
+        as [v1 [v2 Heq]].
+      subst. inversion Hv; subst.
+      right. right. exists G0. exists v2.
+      apply StepSnd; assumption.
+    + subst. right. right. exists G0. exists EFail.
+      eapply StepFail with (E := ECSnd ECHole).
+    + right. right. exists G1. exists (ESnd e').
+      eapply StepCtx with (E := ECSnd ECHole).
+      exact Hstep.
+  - destruct (progress_pure_nobindings G0 cond (TBase BBool) HnoneVar HnoneConst Hcond)
+      as [Hv | [cond' Hstep]].
+    + destruct (canonical_forms_bool_essential_nobindings G0 cond (TBase BBool)
+        HnoneVar HnoneConst (has_type_pure_implies_has_type _ _ _ Hcond) Hv eq_refl)
+        as [Hb | Hb]; subst.
+      * right. right. exists G0. exists e1.
+        apply StepIfTrue.
+      * right. right. exists G0. exists e2.
+        apply StepIfFalse.
+    + right. right. exists G0. exists (EIf cond' e1 e2).
+      eapply StepCtx with (E := ECIf ECHole e1 e2).
+      exact Hstep.
+  - exact (IHinner Hstore HnoneVar HnoneConst).
+  - exact (IHinner Hstore HnoneVar HnoneConst).
+Qed.
+
 (* ==================== PAPER THEOREM 5 ====================
    If ∅ ⊢ e : τ, then e is a value, e = fail, or there exists e' with e → e'. *)
 
-Axiom progress_store_typed_ctx_assumption :
-  forall Γ e τ,
-    store_well_typed Γ ->
-    has_type Γ e τ ->
-    DTDT.machine_inter.value Γ e \/
-    e = EFail \/
-    exists G' e', step (Γ, e) (G', e').
-
-Lemma progress_store_typed_ctx :
-  forall Γ e τ,
-    store_well_typed Γ ->
-    has_type Γ e τ ->
-    DTDT.machine_inter.value Γ e \/
-    e = EFail \/
-    exists G' e', step (Γ, e) (G', e').
-Proof.
-  intros Γ e τ Hstore Hty.
-  exact (progress_store_typed_ctx_assumption Γ e τ Hstore Hty).
-Qed.
-
 Theorem progress :
-  forall e τ,
-    has_type empty_ctx e τ ->
+  forall e tau,
+    has_type empty_ctx e tau ->
     DTDT.machine_inter.value empty_ctx e \/
     e = EFail \/
     exists G' e', step (empty_ctx, e) (G', e').
 Proof.
-  intros e τ Hty.
-  exact (progress_store_typed_ctx empty_ctx e τ store_well_typed_empty Hty).
+  intros e tau Hty.
+  exact (progress_store_typed_ctx_nobindings empty_ctx e tau
+    store_well_typed_empty empty_ctx_no_var_bindings empty_ctx_no_const_bindings Hty).
 Qed.
 
 (* ==================== PAPER THEOREM 1 ====================
@@ -2373,7 +3731,7 @@ Proof.
       intros Γ e_start tau_start Hσ Hstore HnoneVar HnoneConst Hty0.
     - inversion Hσ; subst.
       simpl.
-      exact (progress_store_typed_ctx Γ e_start tau_start Hstore Hty0).
+      exact (progress_store_typed_ctx_nobindings _ e_start tau_start Hstore HnoneVar HnoneConst Hty0).
     - destruct σ2 as [Γ2 e2].
       inversion Hσ; subst.
       pose proof (runtime_ctx_well_typed_from_invariants _ HnoneVar HnoneConst Hstore) as Hrt.
@@ -2386,3 +3744,13 @@ Proof.
   exact (Hsafe (empty_ctx, e) (G₀, e₀) Heval empty_ctx e τ eq_refl
     store_well_typed_empty empty_ctx_no_var_bindings empty_ctx_no_const_bindings Hty).
 Qed.
+
+
+
+
+
+
+
+
+
+

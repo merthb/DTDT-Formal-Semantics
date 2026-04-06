@@ -216,11 +216,12 @@ Proof.
   - simpl.
     apply VFun; assumption.
   - simpl.
-    eapply VFunDep with (v := trans_expr_dref_free v).
+    eapply VFunDep.
     + exact IHHvalid1.
     + match goal with
-      | [ Hv : ty_valid (trans_ctx_surf (ctx_add_var_surf ?G var ?t v)) _ |- _ ] =>
+      | [ Hv : ty_valid (trans_ctx_surf (ctx_add_var_surf ?G var ?t (ExVar var))) _ |- _ ] =>
           rewrite trans_ctx_surf_add_var in Hv;
+          simpl in Hv;
           exact Hv
       end.
   - simpl.
@@ -253,7 +254,7 @@ Proof.
     | var tb e Hvalid
     | var tb e c Hvalid Hent
     | t1 t1' t2 t2' Hsub1 Hsub2
-    | var t1 t1' t2 t2' v Hsub1 Hsub2
+    | var t1 t1' t2 t2' Hsub1 Hsub2
     | t1 t1' t2 t2' Hsub1 Hsub2
     | t t' Hsub1 Hsub2
     | t t' Hsub1 Hsub2].
@@ -270,10 +271,12 @@ Proof.
     + eapply IH. exact Hsub1.
     + eapply IH. exact Hsub2.
   - simpl in *.
-    eapply SFunDep with (v := trans_expr_dref_free v).
+    eapply SFunDep.
     + eapply IH. exact Hsub1.
-    + rewrite <- trans_ctx_surf_add_var.
-      eapply IH. exact Hsub2.
+    + pose proof (IH _ _ _ Hsub2) as Hsub2'.
+      rewrite trans_ctx_surf_add_var in Hsub2'.
+      simpl in Hsub2'.
+      exact Hsub2'.
   - simpl in *.
     eapply SPair.
     + eapply IH. exact Hsub1.

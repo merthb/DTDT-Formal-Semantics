@@ -111,7 +111,7 @@ Fixpoint expr_subst (x : string) (s : i_expr) (e : i_expr) : i_expr :=
   | ENat n => ENat n
   | EUnit u => EUnit u
   | EFix f y τ₁ τ₂ body =>
-    if String.eqb f x || String.eqb y x then EFix f y τ₁ τ₂ body
+    if String.eqb y x then EFix f y τ₁ τ₂ body
     else EFix f y τ₁ τ₂ (expr_subst x s body)
   | EApp e1 e2 => EApp (expr_subst x s e1) (expr_subst x s e2)
   | EPlus e1 e2 => EPlus (expr_subst x s e1) (expr_subst x s e2)
@@ -196,7 +196,7 @@ Inductive step : (ctx * i_expr) -> (ctx * i_expr) -> Prop :=
       value Γ v ->
       step
         (Γ, EApp (EFix f x τ₁ τ₂ e) v)
-        (Γ, expr_subst f (EFix f x τ₁ τ₂ e) (expr_subst x v e))
+        (Γ, expr_subst_fun f (EFix f x τ₁ τ₂ e) (expr_subst x v e))
   | StepFst :
     forall Γ v₁ v₂,
       value Γ v₁ ->

@@ -163,7 +163,7 @@ Lemma has_type_reference_inspecting_function_test :
 Proof.
   unfold ref_inspecting_fun.
   eapply TFun.
-  - apply VFunDep with (v := EVar "r").
+  - apply VFunDep.
     + apply VRef. apply VBase.
     + apply VBase.
   - eapply TIf.
@@ -171,9 +171,7 @@ Proof.
     + apply TPlus.
       * eapply TGet.
         eapply TVar with (v := "r") (e := EVar "r").
-        eapply var_lookup_add_ne.
-        -- discriminate.
-        -- apply var_lookup_add.
+        apply var_lookup_add.
       * apply TNat.
     + apply TNat.
 Qed.

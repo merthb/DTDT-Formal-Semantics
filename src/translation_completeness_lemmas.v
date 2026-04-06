@@ -1,3 +1,4 @@
+Require Import Coq.Program.Equality.
 Require Import DTDT.syntax.
 Require Import DTDT.semantic_rules_inter.
 Require Import DTDT.semantic_rules_surf.
@@ -10,14 +11,21 @@ Lemma simple_type_match_subtype :
   forall Γ τ₁ τ₂,
     subtype (trans_ctx_surf Γ) (trans_type τ₁) (trans_type τ₂) ->
     [| ⟦ τ₁ ⟧ |] = [| ⟦ τ₂ ⟧ |].
-Admitted.
+Proof.
+  intros Γ τ₁ τ₂ Hsub.
+  induction Hsub; simpl; try reflexivity.
+  - rewrite IHHsub1, IHHsub2. reflexivity.
+  - rewrite IHHsub1, IHHsub2. reflexivity.
+  - rewrite IHHsub1, IHHsub2. reflexivity.
+  - rewrite IHHsub1, IHHsub2. reflexivity.
+Qed.
 
 (* Completeness-side simple-type match for coercions (paper form).
    A coercion judgment relates terms whose erased simple types coincide. *)
 Lemma simple_type_match_coercion :
-  forall w Γ e τ e' τ',
-    ⟦ Γ ⟧c ⊢[ w ] e : ⟦ τ ⟧ ↦ e' : ⟦ τ' ⟧ ->
-    [| ⟦ τ ⟧ |] = [| ⟦ τ' ⟧ |].
+  forall w Γ e τ e'' τ'',
+    ⟦ Γ ⟧c ⊢[ w ] e : ⟦ τ ⟧ ↦ e'' : ⟦ τ'' ⟧ ->
+    [| ⟦ τ ⟧ |] = [| ⟦ τ'' ⟧ |].
 Admitted.
 
 (* Reference simple-type match (paper form).
@@ -26,7 +34,17 @@ Lemma simple_type_match_ref :
   forall Γ τ₁ τ₂,
     subtype (trans_ctx_surf Γ) (TRef (trans_type τ₁)) (TRef (trans_type τ₂)) ->
     TRef [| ⟦ τ₁ ⟧ |] = TRef [| ⟦ τ₂ ⟧ |].
-Admitted.
+Proof.
+  intros Γ τ₁ τ₂ Hsub.
+  inversion Hsub; subst; try discriminate.
+  match goal with
+  | Hleft : subtype (trans_ctx_surf Γ) (trans_type τ₁) (trans_type τ₂),
+    Hright : subtype (trans_ctx_surf Γ) (trans_type τ₂) (trans_type τ₁) |- _ =>
+      rewrite (simple_type_match_subtype Γ τ₁ τ₂ Hleft);
+      rewrite (simple_type_match_subtype Γ τ₂ τ₁ Hright);
+      reflexivity
+  end.
+Qed.
 
 (* ==================== PAPER LEMMA 15 ====================
    Reference completeness clause: equal erased ordinary-reference types admit a

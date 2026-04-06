@@ -42,6 +42,9 @@ with ty_vars (τ : i_ty) : list string :=
 Definition fresh_string_list (l : list string) : string :=
   fresh_string_of_set ("x"%string) (list_to_set l).
 
+Definition if_branch_var (e1 e2 : i_expr) : string :=
+  fresh_string_list (exp_vars (EPair e1 e2)).
+
 (* Selfification refines a type with the information that a term inhabits it. *)
 Fixpoint self (τ : i_ty) (term : i_expr) : i_ty :=
   match τ with
@@ -185,10 +188,10 @@ Inductive ty_valid
       ty_valid Γ τ₂ ->
       ty_valid Γ (TArr τ₁ τ₂)
   | VFunDep :
-    forall var τ₁ τ₂ v,
-      ty_valid Γ τ₁ ->
-      ty_valid (ctx_add_var Γ var τ₁ v) τ₂ ->
-      ty_valid Γ (TArrDep var τ₁ τ₂)
+    forall var t1 t2,
+      ty_valid Γ t1 ->
+      ty_valid (ctx_add_var Γ var t1 (EVar var)) t2 ->
+      ty_valid Γ (TArrDep var t1 t2)
   | VPair :
     forall τ₁ τ₂,
       ty_valid Γ τ₁ ->
@@ -235,10 +238,10 @@ Inductive subtype
       subtype Γ τ₂ τ₂' ->
       subtype Γ (TArr τ₁ τ₂) (TArr τ₁' τ₂')
   | SFunDep :
-    forall var τ₁ τ₁' τ₂ τ₂' v,
-      subtype Γ τ₁' τ₁ ->
-      subtype (ctx_add_var Γ var τ₁' v) τ₂ τ₂' ->
-      subtype Γ (TArrDep var τ₁ τ₂) (TArrDep var τ₁' τ₂')
+    forall var t1 t1' t2 t2',
+      subtype Γ t1' t1 ->
+      subtype (ctx_add_var Γ var t1' (EVar var)) t2 t2' ->
+      subtype Γ (TArrDep var t1 t2) (TArrDep var t1' t2')
   | SPair :
     forall τ₁ τ₁' τ₂ τ₂',
       subtype Γ τ₁ τ₁' ->
@@ -365,11 +368,11 @@ Inductive has_type
       has_type Γ e (TProd τ₁ τ₂) ->
       has_type Γ (ESnd e) τ₂
   | TIf :
-    forall e e₁ e₂ τ,
+    forall e e1 e2 t,
       has_type_pure Γ e (TBase BBool) ->
-      has_type (Γ ,,v (fresh_string_list (exp_vars (EIf e e₁ e₂))) ↦ (TBase BBool, e)) e₁ τ ->
-      has_type (Γ ,,v (fresh_string_list (exp_vars (EIf e e₁ e₂))) ↦ (TBase BBool, ENot e)) e₂ τ ->
-      has_type Γ (EIf e e₁ e₂) τ
+      has_type Γ e1 t ->
+      has_type Γ e2 t ->
+      has_type Γ (EIf e e1 e2) t
   | TSelf :
     forall e τ,
       has_type Γ e τ ->
@@ -402,17 +405,32 @@ Definition const_well_typed (Γ : ctx) : Prop :=
     const_ctx_lookup Γ c = Some (t, e) ->
     ty_valid Γ t /\ has_type Γ e t.
 
-Definition const_step_well_typed (Γ : ctx) : Prop :=
-  forall c t e v τtop,
-    const_ctx_lookup Γ c = Some (t, e) ->
-    value Γ v ->
-    has_type Γ (EApp (EConst c) v) τtop ->
-    has_type Γ e τtop.
+Definition var_base_pure_well_typed (G : ctx) : Prop :=
+  forall x t v,
+    var_ctx_lookup G x = Some (t, v) ->
+    essential_type_is_base_type t = true ->
+    has_type_pure G v (essential_type t).
 
-Inductive runtime_ctx_well_typed (Γ : ctx) : Prop :=
+Definition const_step_well_typed (G : ctx) : Prop :=
+  forall c t e v ttop,
+    const_ctx_lookup G c = Some (t, e) ->
+    value G v ->
+    has_type G (EApp (EConst c) v) ttop ->
+    has_type G e ttop.
+
+Definition const_step_pure_well_typed (G : ctx) : Prop :=
+  forall c t e v ty,
+    const_ctx_lookup G c = Some (t, e) ->
+    value G v ->
+    has_type_pure G (EApp (EConst c) v) ty ->
+    has_type_pure G e ty.
+
+Inductive runtime_ctx_well_typed (G : ctx) : Prop :=
   | RuntimeCtxWellTyped :
-    var_well_typed Γ ->
-    const_well_typed Γ ->
-    const_step_well_typed Γ ->
-    store_well_typed Γ ->
-    runtime_ctx_well_typed Γ.
+    var_well_typed G ->
+    var_base_pure_well_typed G ->
+    const_well_typed G ->
+    const_step_well_typed G ->
+    const_step_pure_well_typed G ->
+    store_well_typed G ->
+    runtime_ctx_well_typed G.

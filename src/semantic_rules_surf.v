@@ -116,10 +116,10 @@ Inductive ty_valid_surf
       ty_valid_surf Γ τ₂ ->
       ty_valid_surf Γ (TyArr τ₁ τ₂)
   | VFunDepS :
-    forall var τ₁ τ₂ v,
-      ty_valid_surf Γ τ₁ ->
-      ty_valid_surf (ctx_add_var_surf Γ var τ₁ v) τ₂ ->
-      ty_valid_surf Γ (TyArrDep var τ₁ τ₂)
+    forall var t1 t2,
+      ty_valid_surf Γ t1 ->
+      ty_valid_surf (ctx_add_var_surf Γ var t1 (ExVar var)) t2 ->
+      ty_valid_surf Γ (TyArrDep var t1 t2)
   | VPairS :
     forall τ₁ τ₂,
       ty_valid_surf Γ τ₁ ->
@@ -345,10 +345,10 @@ Inductive subtype_surf
       subtype_surf Γ t2 t2' ->
       subtype_surf Γ (TyArr t1 t2) (TyArr t1' t2')
   | SFunDepS :
-    forall var t1 t1' t2 t2' v,
-      subtype_surf Γ t1' t1 ->
-      subtype_surf (ctx_add_var_surf Γ var t1' v) t2 t2' ->
-      subtype_surf Γ (TyArrDep var t1 t2) (TyArrDep var t1' t2')
+    forall var t1 t1p t2 t2p,
+      subtype_surf Γ t1p t1 ->
+      subtype_surf (ctx_add_var_surf Γ var t1p (ExVar var)) t2 t2p ->
+      subtype_surf Γ (TyArrDep var t1 t2) (TyArrDep var t1p t2p)
   | SPairS :
     forall t1 t1' t2 t2',
       subtype_surf Γ t1 t1' ->

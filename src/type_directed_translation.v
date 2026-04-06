@@ -47,7 +47,7 @@ Fixpoint free_exp_vars (e : i_expr) : list string :=
   | EVar v => [v]
   | ELoc _ => []
   | EFix f x t1 t2 body =>
-      free_ty_vars t1 ++ remove_string f (remove_string x (free_ty_vars t2 ++ free_exp_vars body))
+      free_ty_vars t1 ++ remove_string x (free_ty_vars t2 ++ free_exp_vars body)
   | EApp e1 e2 => free_exp_vars e1 ++ free_exp_vars e2
   | EPlus e1 e2 => free_exp_vars e1 ++ free_exp_vars e2
   | EPair e1 e2 => free_exp_vars e1 ++ free_exp_vars e2
@@ -97,8 +97,8 @@ Fixpoint erase_i_ty (τ : i_ty) : i_ty :=
   match τ with
   | TBase b =>
       TBase b
-  | TSet x b _ =>
-      TSet x b (EBool true)
+  | TSet _ b _ =>
+      TBase b
   | TArr t1 t2 =>
       TArr (erase_i_ty t1) (erase_i_ty t2)
   | TArrDep _ t1 t2 =>
