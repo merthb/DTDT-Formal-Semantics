@@ -13,10 +13,10 @@ Definition inter_newref_nat_expr : i_expr :=
   ENewRef (TBase BNat) (ENat 5).
 
 Definition inter_dref_nat_expr : i_expr :=
-  EPair
-    (EFix "" "u" (TBase BUnit) (TBase BNat) (EGet inter_newref_nat_expr))
-    (EFix "" "x" (TBase BNat) (TBase BUnit) (ESet inter_newref_nat_expr (EVar "x"))).
-
+  expr_subst "y" inter_newref_nat_expr
+    (EPair
+      (EFix "" "u" (TBase BUnit) (TBase BNat) (EGet (EVar "y")))
+      (EFix "" "x" (TBase BNat) (TBase BUnit) (ESet (EVar "y") (EVar "x")))).
 Definition surf_dref_if_nat_expr : expr :=
   ExIf (ExBool true)
        (ExGetDep (ExDeRef surf_newref_nat_expr))

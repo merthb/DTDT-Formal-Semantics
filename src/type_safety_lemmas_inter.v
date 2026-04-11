@@ -1,4 +1,4 @@
-Require Import Coq.Program.Equality.
+﻿Require Import Coq.Program.Equality.
 Require Import DTDT.syntax.
 Require Import DTDT.entails_inter.
 Require Import DTDT.machine_inter.
@@ -1598,12 +1598,7 @@ Qed.
    Implementation-aligned preservation: stepping preserves typing together with
    the store well-typedness invariant needed by the reference fragment. *)
 
-Axiom preservation_left_stepctx_assumption :
-  forall Γ1 Γ2 e e' E τ,
-    runtime_ctx_well_typed Γ1 ->
-    has_type Γ1 (plug E e) τ ->
-    step (Γ1, e) (Γ2, e') ->
-    has_type Γ2 (plug E e') τ.
+
 
 Fixpoint compose_eval_ctx (E1 E2 : eval_ctx) : eval_ctx :=
   match E1 with
@@ -2155,6 +2150,62 @@ Proof.
     + exact H3.
 Qed.
 
+Lemma pure_step_same_ctx :
+  forall G1 G2 e e' t,
+    step (G1, e) (G2, e') ->
+    has_type_pure G1 e t ->
+    G1 = G2.
+Proof.
+  intros G1 G2 e e' t Hstep.
+  revert t.
+  set (P := fun c1 c2 : ctx * i_expr =>
+    match c1, c2 with
+    | (G1', e1), (G2', e2) => forall t', has_type_pure G1' e1 t' -> G1' = G2'
+    end).
+  change (P (G1, e) (G2, e')).
+  induction Hstep; unfold P in *; simpl in *; intros t' Hpure'.
+  - destruct (plug_has_typed_hole_pure _ _ _ _ Hpure') as [th Hhole].
+    exact (IHHstep _ Hhole).
+  - reflexivity.
+  - reflexivity.
+  - inversion Hpure'. inversion H3; subst.
+  - inversion Hpure'.
+  - inversion Hpure'.
+  - inversion Hpure'.
+  - inversion Hpure'.
+  - inversion Hpure'.
+  - inversion Hpure'.
+  - inversion Hpure'.
+  - exfalso.
+    eapply pure_fail_ctx_absurd_runtime_early.
+    exact Hpure'.
+  - reflexivity.
+  - reflexivity.
+  - reflexivity.
+  - reflexivity.
+  - reflexivity.
+  - reflexivity.
+Qed.
+
+Lemma has_type_fix_body :
+  forall G f x t1 t2 e t,
+    has_type G (EFix f x t1 t2 e) t ->
+    ~ List.In x (ty_vars t1) /\
+    ty_valid G (TArrDep x t1 t2) /\
+    has_type (ctx_add_var (ctx_add_const G f (TArrDep x t1 t2) (EFix f x t1 t2 e)) x t1 (EVar x)) e t2.
+Proof.
+  intros G f x t1 t2 e t Hty.
+  remember (EFix f x t1 t2 e) as efix eqn:Heqefix.
+  revert f x t1 t2 e Heqefix.
+  induction Hty; intros f0 x0 t10 t20 e0 Heqefix; subst;
+    try solve [inversion Heqefix].
+  - inversion Heqefix; subst.
+    repeat split; assumption.
+  - exact (IHHty _ _ _ _ _ eq_refl).
+  - exact (IHHty _ _ _ _ _ eq_refl).
+Qed.
+
+
   Lemma step_var_preserves_typing :
     forall Γ x tbound vbound τtop,
       runtime_ctx_well_typed Γ ->
@@ -2305,7 +2356,8 @@ Proof.
       rewrite store_lookup_add_neq; [exact H | exact Hneqlx].
   - apply TFail. apply ty_valid_store_update. exact H.
   - eapply TFun.
-    + apply ty_valid_store_update. exact H.
+    + exact H.
+    + apply ty_valid_store_update. exact H0.
     + rewrite ctx_add_const_store_comm.
       rewrite ctx_add_var_store_comm.
       apply IHHty.
@@ -2852,13 +2904,13 @@ Proof.
 Qed.
 
 Lemma step_fst_preserves_typing :
-  forall Γ v1 v2 τtop,
-    has_type Γ (EFst (EPair v1 v2)) τtop ->
-    value Γ v1 ->
-    value Γ v2 ->
-    has_type Γ v1 τtop.
+  forall G v1 v2 t_top,
+    has_type G (EFst (EPair v1 v2)) t_top ->
+    value G v1 ->
+    value G v2 ->
+    has_type G v1 t_top.
 Proof.
-  intros Γ v1 v2 τtop Hty Hv1 Hv2.
+  intros G v1 v2 t_top Hty Hv1 Hv2.
   remember (EFst (EPair v1 v2)) as efst eqn:Heqefst.
   revert v1 v2 Hv1 Hv2 Heqefst.
   induction Hty; intros v1' v2' Hv1' Hv2' Heqefst;
@@ -2867,7 +2919,7 @@ Proof.
     exact Hleft.
   - exfalso.
     match goal with
-    | Hpure : forall τ1 : i_ty, has_type_pure Γ (EFst (EPair v1' v2')) τ1 |- _ =>
+    | Hpure : forall t1 : i_ty, has_type_pure _ (EFst (EPair v1' v2')) t1 |- _ =>
         exact (no_efst_has_type_pure _ _ _ (Hpure (TBase BNat)))
     end.
   - eapply TSub.
@@ -3050,6 +3102,14 @@ Proof.
     + eapply IHHty; reflexivity.
     + exact H.
 Qed.
+
+Axiom preservation_left_stepctx_assumption :
+  forall Γ Γ' E e e' τ,
+    runtime_ctx_well_typed Γ ->
+    has_type Γ (plug E e) τ ->
+    step (Γ, e) (Γ', e') ->
+    has_type Γ' (plug E e') τ.
+
 
 Lemma preservation_left_same_ctx_step :
   forall Γ e e' τ,

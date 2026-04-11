@@ -1,4 +1,4 @@
-Require Import DTDT.syntax.
+﻿Require Import DTDT.syntax.
 Require Import DTDT.machine_inter.
 Require Import DTDT.entails_inter.
 Require Import DTDT.semantic_rules_inter.
@@ -163,6 +163,7 @@ Lemma has_type_reference_inspecting_function_test :
 Proof.
   unfold ref_inspecting_fun.
   eapply TFun.
+  - simpl. tauto.
   - apply VFunDep.
     + apply VRef. apply VBase.
     + apply VBase.

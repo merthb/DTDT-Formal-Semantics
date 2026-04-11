@@ -1,4 +1,4 @@
-Require Import DTDT.syntax.
+﻿Require Import DTDT.syntax.
 Require Import DTDT.machine_inter.
 Require Import DTDT.entails_inter.
 From stdpp Require Export base.
@@ -45,15 +45,19 @@ Definition fresh_string_list (l : list string) : string :=
 Definition if_branch_var (e1 e2 : i_expr) : string :=
   fresh_string_list (exp_vars (EPair e1 e2)).
 
-(* Selfification refines a type with the information that a term inhabits it. *)
-Fixpoint self (τ : i_ty) (term : i_expr) : i_ty :=
+(* Internal binder-stable selfification helper. *)
+Fixpoint self_with (u : string) (τ : i_ty) (term : i_expr) : i_ty :=
   match τ with
-  | TBase b => TSet (fresh_string_list (exp_vars term)) b (EEq (EVar (fresh_string_list (exp_vars term))) term)
+  | TBase b => TSet u b (EEq (EVar u) term)
   | TSet var tb expr => TSet var tb (EAnd expr (EEq (EVar var) term))
-  | TArr (TBase b) τ₂ => TArrDep (fresh_string_list (exp_vars term)) (TBase b) (self τ₂ (EApp term (EVar (fresh_string_list (exp_vars term)))))
+  | TArr (TBase b) τ₂ => TArrDep u (TBase b) (self_with u τ₂ (EApp term (EVar u)))
   | TRef τ => TRef τ
   | x => x
   end.
+
+(* Selfification refines a type with the information that a term inhabits it. *)
+Definition self (τ : i_ty) (term : i_expr) : i_ty :=
+  self_with (fresh_string_list (exp_vars term)) τ term.
 
 (* Compute self (TBase BNat) (EVar ("x"%string)).
 Compute self (TArr (TBase BNat) (TArr (TBase BNat) (TBase BNat))) (EVar ("+"%string)). *)
@@ -297,6 +301,7 @@ Inductive has_type
       has_type Γ EFail τ
   | TFun :
     forall f x τ₁ τ₂ e,
+      ~ List.In x (ty_vars τ₁) ->
       ty_valid Γ (TArrDep x τ₁ τ₂) ->
       has_type ((Γ ,,c f ↦ (TArrDep x τ₁ τ₂, EFix f x τ₁ τ₂ e)) ,,v x ↦ (τ₁, EVar x)) e τ₂ ->
       has_type Γ (EFix f x τ₁ τ₂ e) (TArrDep x τ₁ τ₂)
@@ -434,3 +439,5 @@ Inductive runtime_ctx_well_typed (G : ctx) : Prop :=
     const_step_pure_well_typed G ->
     store_well_typed G ->
     runtime_ctx_well_typed G.
+
+

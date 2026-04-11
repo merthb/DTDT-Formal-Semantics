@@ -110,9 +110,9 @@ Fixpoint expr_subst (x : string) (s : i_expr) (e : i_expr) : i_expr :=
   | EBool b => EBool b
   | ENat n => ENat n
   | EUnit u => EUnit u
-  | EFix f y τ₁ τ₂ body =>
-    if String.eqb y x then EFix f y τ₁ τ₂ body
-    else EFix f y τ₁ τ₂ (expr_subst x s body)
+  | EFix f y t1 t2 body =>
+    if String.eqb y x then EFix f y (ty_subst x s t1) t2 body
+    else EFix f y (ty_subst x s t1) (ty_subst x s t2) (expr_subst x s body)
   | EApp e1 e2 => EApp (expr_subst x s e1) (expr_subst x s e2)
   | EPlus e1 e2 => EPlus (expr_subst x s e1) (expr_subst x s e2)
   | EPair e1 e2 => EPair (expr_subst x s e1) (expr_subst x s e2)
@@ -124,24 +124,35 @@ Fixpoint expr_subst (x : string) (s : i_expr) (e : i_expr) : i_expr :=
   | EOr e1 e2 => EOr (expr_subst x s e1) (expr_subst x s e2)
   | EImp e1 e2 => EImp (expr_subst x s e1) (expr_subst x s e2)
   | EEq e1 e2 => EEq (expr_subst x s e1) (expr_subst x s e2)
-  | ENewRef τ e1 => ENewRef τ (expr_subst x s e1)
+  | ENewRef t e1 => ENewRef (ty_subst x s t) (expr_subst x s e1)
   | EGet e1 => EGet (expr_subst x s e1)
   | ESet e1 e2 => ESet (expr_subst x s e1) (expr_subst x s e2)
   | EFail => EFail
+  end
+with ty_subst (x : string) (s : i_expr) (t : i_ty) : i_ty :=
+  match t with
+  | TBase b => TBase b
+  | TSet y b pred => if String.eqb x y then TSet y b pred else TSet y b (expr_subst x s pred)
+  | TArr t1 t2 => TArr (ty_subst x s t1) (ty_subst x s t2)
+  | TArrDep y t1 t2 =>
+    if String.eqb x y then TArrDep y (ty_subst x s t1) t2
+    else TArrDep y (ty_subst x s t1) (ty_subst x s t2)
+  | TProd t1 t2 => TProd (ty_subst x s t1) (ty_subst x s t2)
+  | TRef t1 => TRef (ty_subst x s t1)
   end.
 
 Fixpoint expr_subst_fun (f : string) (s : i_expr) (e : i_expr) : i_expr :=
   match e with
-  | EVar y => if String.eqb f y then s else EVar y
+  | EVar y => EVar y
   | ELoc l => ELoc l
-  | EConst c => EConst c
+  | EConst c => if String.eqb f c then s else EConst c
   | EString v => EString v
   | EBool b => EBool b
   | ENat n => ENat n
   | EUnit u => EUnit u
-  | EFix g y τ₁ τ₂ body =>
-    if String.eqb g f || String.eqb y f then EFix g y τ₁ τ₂ body
-    else EFix g y τ₁ τ₂ (expr_subst_fun f s body)
+  | EFix g y t1 t2 body =>
+    if String.eqb g f then EFix g y t1 t2 body
+    else EFix g y t1 t2 (expr_subst_fun f s body)
   | EApp e1 e2 => EApp (expr_subst_fun f s e1) (expr_subst_fun f s e2)
   | EPlus e1 e2 => EPlus (expr_subst_fun f s e1) (expr_subst_fun f s e2)
   | EPair e1 e2 => EPair (expr_subst_fun f s e1) (expr_subst_fun f s e2)
@@ -153,21 +164,10 @@ Fixpoint expr_subst_fun (f : string) (s : i_expr) (e : i_expr) : i_expr :=
   | EOr e1 e2 => EOr (expr_subst_fun f s e1) (expr_subst_fun f s e2)
   | EImp e1 e2 => EImp (expr_subst_fun f s e1) (expr_subst_fun f s e2)
   | EEq e1 e2 => EEq (expr_subst_fun f s e1) (expr_subst_fun f s e2)
-  | ENewRef τ e1 => ENewRef τ (expr_subst_fun f s e1)
+  | ENewRef t e1 => ENewRef t (expr_subst_fun f s e1)
   | EGet e1 => EGet (expr_subst_fun f s e1)
   | ESet e1 e2 => ESet (expr_subst_fun f s e1) (expr_subst_fun f s e2)
   | EFail => EFail
-  end.
-Fixpoint ty_subst (x : string) (s : i_expr) (τ : i_ty) : i_ty :=
-  match τ with
-  | TBase b => TBase b
-  | TSet y b pred => if String.eqb x y then TSet y b pred else TSet y b (expr_subst x s pred)
-  | TArr t1 t2 => TArr (ty_subst x s t1) (ty_subst x s t2)
-  | TArrDep y t1 t2 =>
-    if String.eqb x y then TArrDep y (ty_subst x s t1) t2
-    else TArrDep y (ty_subst x s t1) (ty_subst x s t2)
-  | TProd t1 t2 => TProd (ty_subst x s t1) (ty_subst x s t2)
-  | TRef t => TRef (ty_subst x s t)
   end.
 
 (* One-step machine reduction on configurations.
@@ -295,3 +295,5 @@ Inductive eval : (ctx * i_expr) -> (ctx * i_expr) -> Prop :=
 
 Notation "σ₁ ↠* σ₂" := (eval σ₁ σ₂)
   (at level 70).
+
+

@@ -430,7 +430,8 @@ Proof.
     apply weakening_ty_valid_right.
     exact H.
   - eapply TFun.
-    + apply weakening_ty_valid_right. exact H.
+    + exact H.
+    + apply weakening_ty_valid_right. exact H0.
     + rewrite add_ctx_ctx_add_const.
       rewrite add_ctx_ctx_add_var.
       exact IHhas_type.
@@ -775,6 +776,39 @@ Proof.
 Qed.
 
 (* Subtyping preserves the essential carrier of base-like types. *)
+Lemma subtype_refl_valid :
+  forall G ty,
+    ty_valid G ty -> subtype G ty ty.
+Proof.
+  intros G ty Hval.
+  induction Hval.
+  - apply SBase.
+  - match goal with
+    | b : BaseT |- _ => destruct b
+    end.
+    + eapply SSet with (c := EmptyString).
+      * eapply VSet. exact H.
+      * eapply VSet. exact H.
+      * apply entails_imp_refl.
+    + eapply SSet with (c := true).
+      * eapply VSet. exact H.
+      * eapply VSet. exact H.
+      * apply entails_imp_refl.
+    + eapply SSet with (c := 0).
+      * eapply VSet. exact H.
+      * eapply VSet. exact H.
+      * apply entails_imp_refl.
+    + eapply SSet with (c := tt).
+      * eapply VSet. exact H.
+      * eapply VSet. exact H.
+      * apply entails_imp_refl.
+  - eapply SFun; eauto.
+  - eapply SFunDep; eauto.
+  - eapply SPair; eauto.
+  - eapply SRef; eauto.
+Qed.
+
+
 Lemma subtype_preserves_essential_type :
   forall Γ τ' τ,
     subtype Γ τ' τ ->
@@ -893,6 +927,42 @@ Proof.
     exact H.
 Qed.
 
+Lemma value_change_const_witness :
+  forall G f t witness_old witness_new v,
+    const_ctx_lookup G f = Some (t, witness_old) ->
+    value G v ->
+    value (ctx_add_const G f t witness_new) v.
+Proof.
+  intros G f t witness_old witness_new v Hbind Hv.
+  induction Hv.
+  - apply VNat.
+  - apply VBool.
+  - apply VUnit.
+  - apply VString.
+  - destruct (String.eq_dec c f) as [-> | Hneq].
+    + eapply (@VConst (ctx_add_const G f t witness_new) f t witness_new).
+      unfold const_ctx_lookup, ctx_add_const.
+      simpl.
+      apply lookup_insert.
+    + eapply VConst.
+      unfold const_ctx_lookup, ctx_add_const in *.
+      simpl in *.
+      rewrite (lookup_insert_ne (snd (fst G)) f c (t, witness_new)) by congruence.
+      exact H.
+  - apply VFix.
+  - constructor.
+    + exact IHHv1.
+    + exact IHHv2.
+  - eapply VVar.
+    unfold var_ctx_lookup, ctx_add_const in *.
+    simpl in *.
+    exact H.
+  - eapply VLoc.
+    unfold store_ctx_lookup, ctx_add_const in *.
+    simpl in *.
+    exact H.
+Qed.
+
 Lemma step_preserves_env :
   forall Γ e Γ' e',
     step (Γ, e) (Γ', e') ->
@@ -918,6 +988,20 @@ Proof.
   unfold var_ctx_lookup in *.
   simpl in *.
   rewrite <- Hvars.
+  exact Hlookup.
+Qed.
+
+Lemma step_preserves_const_lookup :
+  forall G e G' e' f t witness,
+    step (G, e) (G', e') ->
+    const_ctx_lookup G f = Some (t, witness) ->
+    const_ctx_lookup G' f = Some (t, witness).
+Proof.
+  intros G e G' e' f t witness Hstep Hlookup.
+  destruct (step_preserves_env _ _ _ _ Hstep) as [_ Hconsts].
+  unfold const_ctx_lookup in *.
+  simpl in *.
+  rewrite <- Hconsts.
   exact Hlookup.
 Qed.
 
@@ -1150,14 +1234,57 @@ Proof.
   f_equal.
   apply insert_commute.
   congruence.
-
 Qed.
+
+Lemma ctx_add_const_shadow :
+  forall C f t_old e_old t_new e_new,
+    ctx_add_const (ctx_add_const C f t_old e_old) f t_new e_new =
+    ctx_add_const C f t_new e_new.
+Proof.
+  intros C f t_old e_old t_new e_new.
+  destruct C as [vc store].
+  destruct vc as [vars consts].
+  unfold ctx_add_const.
+  simpl.
+  f_equal.
+  f_equal.
+  apply insert_insert.
+Qed.
+
+Lemma ctx_add_const_swap :
+  forall C f tf ef g tg eg,
+    f <> g ->
+    ctx_add_const (ctx_add_const C f tf ef) g tg eg =
+    ctx_add_const (ctx_add_const C g tg eg) f tf ef.
+Proof.
+  intros C f tf ef g tg eg Hneq.
+  destruct C as [vc store].
+  destruct vc as [vars consts].
+  unfold ctx_add_const.
+  simpl.
+  f_equal.
+  f_equal.
+  apply insert_commute.
+  congruence.
+Qed.
+
 Lemma ctx_add_const_var_comm :
   forall C x tx ex f tf ef,
     ctx_add_const (ctx_add_var C x tx ex) f tf ef =
     ctx_add_var (ctx_add_const C f tf ef) x tx ex.
 Proof.
   intros C x tx ex f tf ef.
+  destruct C as [vc store].
+  destruct vc as [vars consts].
+  reflexivity.
+Qed.
+
+Lemma ctx_add_const_store_comm :
+  forall C l tl vl f tf ef,
+    ctx_add_const (ctx_add_store C l tl vl) f tf ef =
+    ctx_add_store (ctx_add_const C f tf ef) l tl vl.
+Proof.
+  intros C l tl vl f tf ef.
   destruct C as [vc store].
   destruct vc as [vars consts].
   reflexivity.
@@ -1392,7 +1519,8 @@ Proof.
   - eapply TFail.
     exact (subsumption_ty_valid_var_ctx (ctx_add_var C0 x t_new witness) x t_old t_new witness (Hsub C0) C0 _ H).
   - eapply TFun.
-    + exact (subsumption_ty_valid_var_ctx (ctx_add_var C0 x t_new witness) x t_old t_new witness (Hsub C0) C0 _ H).
+    + exact H.
+    + exact (subsumption_ty_valid_var_ctx (ctx_add_var C0 x t_new witness) x t_old t_new witness (Hsub C0) C0 _ H0).
     + destruct (String.eq_dec x0 x) as [-> | Hneq].
       * rewrite ctx_add_const_var_comm.
         rewrite ctx_add_var_shadow.
@@ -1558,6 +1686,24 @@ Proof.
   destruct t; simpl in *; try discriminate; reflexivity.
 Qed.
 
+Lemma ty_subst_self_with_base :
+  forall x e0 u b e,
+    x <> u ->
+    ty_subst x e0 (self_with u (TBase b) e) =
+    self_with u (TBase b) (expr_subst x e0 e).
+Proof.
+  intros x e0 u b e Hneq.
+  simpl.
+  assert (Hneqb : (x =? u)%string = false) by (apply String.eqb_neq; exact Hneq).
+  rewrite Hneqb.
+  reflexivity.
+Qed.
+Lemma self_unfold_self_with :
+  forall t e,
+    self t e = self_with (fresh_string_list (exp_vars e)) t e.
+Proof.
+  reflexivity.
+Qed.
 Lemma ty_subst_simple_id :
   forall x e0 t,
     is_simple_type t = true ->
@@ -1592,9 +1738,40 @@ Proof.
     { intro Heq. apply Hfresh. subst. simpl. auto. }
     assert (Hneqf : x <> s0).
     { intro Heq. apply Hfresh. subst. simpl. auto. }
+    assert (Hfresh_t1 : ~ List.In x (ty_vars i)).
+    { intro Hin. apply Hfresh. simpl. right. right. apply in_or_app. left. exact Hin. }
+    assert (Hfresh_t2 : ~ List.In x (ty_vars i0)).
+    { intro Hin. apply Hfresh. simpl. right. right. apply in_or_app. right. apply in_or_app. left. exact Hin. }
     assert (Hfresh_body : ~ List.In x (exp_vars e)).
-    { intro Hin. apply Hfresh. simpl. right. right.
-      apply in_or_app. right. apply in_or_app. right. exact Hin. }
+    { intro Hin. apply Hfresh. simpl. right. right. apply in_or_app. right. apply in_or_app. right. exact Hin. }
+    assert (Htyfresh : forall t, ~ List.In x (ty_vars t) -> ty_subst x s t = t).
+    { intros t.
+      induction t; intros Hfresh_t; simpl in *; try reflexivity.
+
+      - destruct (String.eqb_spec x s2) as [Heq | Hneq2].
+        + subst. exfalso. apply Hfresh_t. simpl. auto.
+        + rewrite IH by (intro Hin; apply Hfresh_t; simpl; right; exact Hin).
+          reflexivity.
+      - assert (Hfresh1 : ~ List.In x (ty_vars t1)).
+        { intro Hin. apply Hfresh_t. apply in_or_app. left. exact Hin. }
+        assert (Hfresh2 : ~ List.In x (ty_vars t2)).
+        { intro Hin. apply Hfresh_t. apply in_or_app. right. exact Hin. }
+        rewrite (IHt1 Hfresh1), (IHt2 Hfresh2). reflexivity.
+      - assert (Hneqx : x <> s2).
+        { intro Heq. apply Hfresh_t. subst. simpl. auto. }
+        assert (Hfresh1 : ~ List.In x (ty_vars t1)).
+        { intro Hin. apply Hfresh_t. simpl. right. apply in_or_app. left. exact Hin. }
+        assert (Hfresh2 : ~ List.In x (ty_vars t2)).
+        { intro Hin. apply Hfresh_t. simpl. right. apply in_or_app. right. exact Hin. }
+        apply String.eqb_neq in Hneqx.
+        rewrite Hneqx.
+        rewrite (IHt1 Hfresh1), (IHt2 Hfresh2). reflexivity.
+      - assert (Hfresh1 : ~ List.In x (ty_vars t1)).
+        { intro Hin. apply Hfresh_t. apply in_or_app. left. exact Hin. }
+        assert (Hfresh2 : ~ List.In x (ty_vars t2)).
+        { intro Hin. apply Hfresh_t. apply in_or_app. right. exact Hin. }
+        rewrite (IHt1 Hfresh1), (IHt2 Hfresh2). reflexivity.
+      - rewrite (IHt Hfresh_t). reflexivity. }
     destruct (String.eqb s0 x) eqn:Heqf.
     + apply String.eqb_eq in Heqf.
       exfalso.
@@ -1607,9 +1784,8 @@ Proof.
         apply Hneq.
         symmetry.
         exact Heqy.
-      *
-    rewrite IH by exact Hfresh_body.
-    reflexivity.
+      * rewrite (Htyfresh i Hfresh_t1), (Htyfresh i0 Hfresh_t2), IH by exact Hfresh_body.
+        reflexivity.
   - assert (Hfresh1 : ~ List.In x (exp_vars e1)).
     { intro Hin. apply Hfresh. simpl. apply in_or_app. left. exact Hin. }
     assert (Hfresh2 : ~ List.In x (exp_vars e2)).
@@ -1681,9 +1857,38 @@ Proof.
     rewrite (IH x s e1 Hfresh1).
     rewrite (IH x s e2 Hfresh2).
     reflexivity.
-  - assert (Hfresh_e : ~ List.In x (exp_vars e)).
+  - assert (Hfresh_t : ~ List.In x (ty_vars i)).
+    { intro Hin. apply Hfresh. simpl. apply in_or_app. left. exact Hin. }
+    assert (Hfresh_e : ~ List.In x (exp_vars e)).
     { intro Hin. apply Hfresh. simpl. apply in_or_app. right. exact Hin. }
-    rewrite (IH x s e Hfresh_e).
+    assert (Htyfresh : forall t, ~ List.In x (ty_vars t) -> ty_subst x s t = t).
+    { intros t.
+      induction t; intros Hfresh_t0; simpl in *; try reflexivity.
+      - destruct (String.eqb_spec x s0) as [Heq | Hneq].
+        + subst. exfalso. apply Hfresh_t0. simpl. auto.
+        + rewrite IH by (intro Hin; apply Hfresh_t0; simpl; right; exact Hin).
+          reflexivity.
+      - assert (Hfresh1 : ~ List.In x (ty_vars t1)).
+        { intro Hin. apply Hfresh_t0. apply in_or_app. left. exact Hin. }
+        assert (Hfresh2 : ~ List.In x (ty_vars t2)).
+        { intro Hin. apply Hfresh_t0. apply in_or_app. right. exact Hin. }
+        rewrite (IHt1 Hfresh1), (IHt2 Hfresh2). reflexivity.
+      - assert (Hneqx : x <> s0).
+        { intro Heq. apply Hfresh_t0. subst. simpl. auto. }
+        assert (Hfresh1 : ~ List.In x (ty_vars t1)).
+        { intro Hin. apply Hfresh_t0. simpl. right. apply in_or_app. left. exact Hin. }
+        assert (Hfresh2 : ~ List.In x (ty_vars t2)).
+        { intro Hin. apply Hfresh_t0. simpl. right. apply in_or_app. right. exact Hin. }
+        apply String.eqb_neq in Hneqx.
+        rewrite Hneqx.
+        rewrite (IHt1 Hfresh1), (IHt2 Hfresh2). reflexivity.
+      - assert (Hfresh1 : ~ List.In x (ty_vars t1)).
+        { intro Hin. apply Hfresh_t0. apply in_or_app. left. exact Hin. }
+        assert (Hfresh2 : ~ List.In x (ty_vars t2)).
+        { intro Hin. apply Hfresh_t0. apply in_or_app. right. exact Hin. }
+        rewrite (IHt1 Hfresh1), (IHt2 Hfresh2). reflexivity.
+      - rewrite (IHt Hfresh_t0). reflexivity. }
+    rewrite (Htyfresh i Hfresh_t), (IH x s e Hfresh_e).
     reflexivity.
   - assert (Hfresh_e : ~ List.In x (exp_vars e)).
     { intro Hin. apply Hfresh. exact Hin. }
@@ -1750,24 +1955,53 @@ Proof.
   - destruct (String.eqb_spec x s0) as [Heq | Hneq].
     + subst. exfalso. apply Hfresh. simpl. auto.
     + reflexivity.
-  - destruct (String.eqb s1 x) eqn:Hyx.
-    + reflexivity.
-    + assert (Hbody : ~ List.In x (free_exp_vars e)).
+  - assert (Hfresh_t1 : ~ List.In x (free_ty_vars i)).
+    { intro Hin. apply Hfresh. apply in_or_app. left. exact Hin. }
+    assert (Htyfresh : forall t, ~ List.In x (free_ty_vars t) -> ty_subst x s t = t).
+    { intros t.
+      induction t; intros Hfresh_t; simpl in *; try reflexivity.
+      - destruct (String.eqb_spec x s2) as [Heq | Hneq].
+        + subst s2. reflexivity.
+        + rewrite IH by (intro Hin; apply Hfresh_t; apply in_remove_string_intro; assumption).
+          reflexivity.
+      - assert (Hfresh1 : ~ List.In x (free_ty_vars t1)).
+        { intro Hin. apply Hfresh_t. apply in_or_app. left. exact Hin. }
+        assert (Hfresh2 : ~ List.In x (free_ty_vars t2)).
+        { intro Hin. apply Hfresh_t. apply in_or_app. right. exact Hin. }
+        rewrite (IHt1 Hfresh1), (IHt2 Hfresh2). reflexivity.
+      - destruct (String.eqb_spec x s2) as [Heq | Hneq].
+        + subst s2.
+          assert (Hfresh1 : ~ List.In x (free_ty_vars t1)).
+          { intro Hin. apply Hfresh_t. apply in_or_app. left. exact Hin. }
+          rewrite (IHt1 Hfresh1). reflexivity.
+        + assert (Hfresh1 : ~ List.In x (free_ty_vars t1)).
+          { intro Hin. apply Hfresh_t. apply in_or_app. left. exact Hin. }
+          assert (Hfresh2 : ~ List.In x (free_ty_vars t2)).
+          { intro Hin. apply Hfresh_t. apply in_or_app. right. apply in_remove_string_intro; assumption. }
+          rewrite (IHt1 Hfresh1), (IHt2 Hfresh2). reflexivity.
+      - assert (Hfresh1 : ~ List.In x (free_ty_vars t1)).
+        { intro Hin. apply Hfresh_t. apply in_or_app. left. exact Hin. }
+        assert (Hfresh2 : ~ List.In x (free_ty_vars t2)).
+        { intro Hin. apply Hfresh_t. apply in_or_app. right. exact Hin. }
+        rewrite (IHt1 Hfresh1), (IHt2 Hfresh2). reflexivity.
+      - rewrite (IHt Hfresh_t). reflexivity. }
+    destruct (String.eqb s1 x) eqn:Hyx.
+    + rewrite (Htyfresh i Hfresh_t1). reflexivity.
+    + assert (Hneqyx : x <> s1).
+      { intro Heq. apply String.eqb_neq in Hyx. apply Hyx. symmetry. exact Heq. }
+      assert (Hfresh_t2 : ~ List.In x (free_ty_vars i0)).
+      { intro Hin. apply Hfresh. apply in_or_app. right. apply in_remove_string_intro.
+        - exact Hneqyx.
+        - apply in_or_app. left. exact Hin. }
+      assert (Hbody : ~ List.In x (free_exp_vars e)).
       { intro Hin.
-        assert (Hneqyx : x <> s1).
-        { intro Heq.
-          apply String.eqb_neq in Hyx.
-          apply Hyx.
-          symmetry.
-          exact Heq. }
         apply Hfresh.
-        simpl.
         apply in_or_app.
         right.
         apply in_remove_string_intro.
         - exact Hneqyx.
         - apply in_or_app. right. exact Hin. }
-      rewrite (IH x s e Hbody).
+      rewrite (Htyfresh i Hfresh_t1), (Htyfresh i0 Hfresh_t2), (IH x s e Hbody).
       reflexivity.
   - assert (Hfresh1 : ~ List.In x (free_exp_vars e1)).
     { intro Hin. apply Hfresh. simpl. apply in_or_app. left. exact Hin. }
@@ -1814,9 +2048,39 @@ Proof.
     assert (Hfresh2 : ~ List.In x (free_exp_vars e2)).
     { intro Hin. apply Hfresh. simpl. apply in_or_app. right. exact Hin. }
     rewrite (IH x s e1 Hfresh1), (IH x s e2 Hfresh2). reflexivity.
-  - assert (Hfresh_e : ~ List.In x (free_exp_vars e)).
+  - assert (Hfresh_t : ~ List.In x (free_ty_vars i)).
+    { intro Hin. apply Hfresh. simpl. apply in_or_app. left. exact Hin. }
+    assert (Hfresh_e : ~ List.In x (free_exp_vars e)).
     { intro Hin. apply Hfresh. simpl. apply in_or_app. right. exact Hin. }
-    rewrite (IH x s e Hfresh_e). reflexivity.
+    assert (Htyfresh : forall t, ~ List.In x (free_ty_vars t) -> ty_subst x s t = t).
+    { intros t.
+      induction t; intros Hfresh_t0; simpl in *; try reflexivity.
+      - destruct (String.eqb_spec x s0) as [Heq | Hneq].
+        + subst. reflexivity.
+        + rewrite IH by (intro Hin; apply Hfresh_t0; apply in_remove_string_intro; assumption).
+          reflexivity.
+      - assert (Hfresh1 : ~ List.In x (free_ty_vars t1)).
+        { intro Hin. apply Hfresh_t0. apply in_or_app. left. exact Hin. }
+        assert (Hfresh2 : ~ List.In x (free_ty_vars t2)).
+        { intro Hin. apply Hfresh_t0. apply in_or_app. right. exact Hin. }
+        rewrite (IHt1 Hfresh1), (IHt2 Hfresh2). reflexivity.
+      - destruct (String.eqb_spec x s0) as [Heq | Hneq].
+        + subst s0.
+          assert (Hfresh1 : ~ List.In x (free_ty_vars t1)).
+          { intro Hin. apply Hfresh_t0. apply in_or_app. left. exact Hin. }
+          rewrite (IHt1 Hfresh1). reflexivity.
+        + assert (Hfresh1 : ~ List.In x (free_ty_vars t1)).
+          { intro Hin. apply Hfresh_t0. apply in_or_app. left. exact Hin. }
+          assert (Hfresh2 : ~ List.In x (free_ty_vars t2)).
+          { intro Hin. apply Hfresh_t0. apply in_or_app. right. apply in_remove_string_intro; assumption. }
+          rewrite (IHt1 Hfresh1), (IHt2 Hfresh2). reflexivity.
+      - assert (Hfresh1 : ~ List.In x (free_ty_vars t1)).
+        { intro Hin. apply Hfresh_t0. apply in_or_app. left. exact Hin. }
+        assert (Hfresh2 : ~ List.In x (free_ty_vars t2)).
+        { intro Hin. apply Hfresh_t0. apply in_or_app. right. exact Hin. }
+        rewrite (IHt1 Hfresh1), (IHt2 Hfresh2). reflexivity.
+      - rewrite (IHt Hfresh_t0). reflexivity. }
+    rewrite (Htyfresh i Hfresh_t), (IH x s e Hfresh_e). reflexivity.
   - rewrite (IH x s e Hfresh). reflexivity.
   - assert (Hfresh1 : ~ List.In x (free_exp_vars e1)).
     { intro Hin. apply Hfresh. simpl. apply in_or_app. left. exact Hin. }
@@ -2422,6 +2686,7 @@ Qed.
 Lemma subst_base_has_type_fun_nonshadow_ctx_stable_from_premises :
   forall C x e0 f y t1 t2 body,
     y <> x ->
+    ~ List.In y (ty_vars t1) ->
     ty_subst x e0 t1 = t1 ->
     ty_subst x e0 t2 = t2 ->
     ty_valid (ctx_subst x e0 C) (TArrDep y t1 t2) ->
@@ -2435,7 +2700,7 @@ Lemma subst_base_has_type_fun_nonshadow_ctx_stable_from_premises :
       (expr_subst x e0 (EFix f y t1 t2 body))
       (ty_subst x e0 (TArrDep y t1 t2)).
 Proof.
-  intros C x e0 f y t1 t2 body Hneq Ht1 Ht2 Hvalid Hbody.
+  intros C x e0 f y t1 t2 body Hneq Hfresh Ht1 Ht2 Hvalid Hbody.
   assert (Hneqbxy : (x =? y)%string = false) by (apply String.eqb_neq; congruence).
   assert (Hneqbyx : (y =? x)%string = false).
   { rewrite String.eqb_sym. exact Hneqbxy. }
@@ -2445,12 +2710,49 @@ Proof.
   rewrite Ht1.
   rewrite Ht2.
   eapply TFun.
+  + exact Hfresh.
   + exact Hvalid.
   + exact Hbody.
 Qed.
 
+Lemma subst_base_has_type_fun_nonshadow_ctx_stable_from_substituted_premises :
+  forall C x e0 f y t1 t2 body,
+    y <> x ->
+    ~ List.In y (ty_vars (ty_subst x e0 t1)) ->
+    ty_valid (ctx_subst x e0 C) (ty_subst x e0 (TArrDep y t1 t2)) ->
+    has_type
+      (ctx_subst x e0 (((C ,,c f ↦ (TArrDep y t1 t2, EFix f y t1 t2 body)) ,,v y ↦ (t1, EVar y))))
+      (expr_subst x e0 body)
+      (ty_subst x e0 t2) ->
+    has_type
+      (ctx_subst x e0 C)
+      (expr_subst x e0 (EFix f y t1 t2 body))
+      (ty_subst x e0 (TArrDep y t1 t2)).
+Proof.
+  intros C x e0 f y t1 t2 body Hneq Hfresh Hvalid Hbody.
+  assert (Hneqbxy : (x =? y)%string = false) by (apply String.eqb_neq; congruence).
+  assert (Hneqbyx : (y =? x)%string = false).
+  { rewrite String.eqb_sym. exact Hneqbxy. }
+  simpl.
+  rewrite Hneqbyx.
+  rewrite Hneqbxy.
+  simpl in Hvalid.
+  rewrite Hneqbxy in Hvalid.
+  rewrite ctx_subst_ctx_add_var in Hbody.
+  rewrite ctx_subst_ctx_add_const in Hbody.
+  simpl in Hbody.
+  rewrite Hneqbyx in Hbody.
+  rewrite Hneqbxy in Hbody.
+  eapply TFun.
+  - exact Hfresh.
+  - exact Hvalid.
+  - exact Hbody.
+Qed.
+
+
 Lemma subst_base_has_type_fun_shadow_ctx_stable_from_premises :
   forall C x e0 f t1 t2 body,
+    ~ List.In x (ty_vars t1) ->
     ty_subst x e0 t1 = t1 ->
     ty_valid (ctx_subst x e0 C) (TArrDep x t1 t2) ->
     has_type
@@ -2463,11 +2765,12 @@ Lemma subst_base_has_type_fun_shadow_ctx_stable_from_premises :
       (expr_subst x e0 (EFix f x t1 t2 body))
       (ty_subst x e0 (TArrDep x t1 t2)).
 Proof.
-  intros C x e0 f t1 t2 body Ht1 Hvalid Hbody.
+  intros C x e0 f t1 t2 body Hfresh Ht1 Hvalid Hbody.
   simpl.
   rewrite String.eqb_refl.
   rewrite Ht1.
   eapply TFun.
+  - exact Hfresh.
   - exact Hvalid.
   - exact Hbody.
 Qed.
@@ -2736,24 +3039,85 @@ Qed.
 
 (* Paper Lemma 6, typing clause.
    Base substitution preserves typing. *)
-Axiom has_type_subst_base_closed_pure_ctx :
-  forall C x e0 t0 e t,
+
+Axiom subst_base_has_type_ctx_fun_hard :
+  forall C x e0 t0 f y t1 t2 body,
+    ctx_subst x e0 C = C ->
+    DTDT.machine_inter.value (ctx_subst x e0 C) e0 ->
     essential_type_is_base_type t0 = true ->
     has_type_pure (ctx_subst x e0 C) e0 (essential_type t0) ->
+    has_type (ctx_subst x e0 C) e0 t0 ->
+    ty_subst x e0 t0 = t0 ->
+    free_exp_vars e0 = [] ->
+    has_type (ctx_add_var C x t0 e0) (EFix f y t1 t2 body) (TArrDep y t1 t2) ->
+    has_type (ctx_subst x e0 C) (expr_subst x e0 (EFix f y t1 t2 body)) (ty_subst x e0 (TArrDep y t1 t2)).
+
+Axiom subst_base_has_type_ctx_app_pure_hard :
+  forall C x e0 t0 e1 e2 y t1 t2,
+    ctx_subst x e0 C = C ->
+    DTDT.machine_inter.value (ctx_subst x e0 C) e0 ->
+    essential_type_is_base_type t0 = true ->
+    has_type_pure (ctx_subst x e0 C) e0 (essential_type t0) ->
+    has_type (ctx_subst x e0 C) e0 t0 ->
+    ty_subst x e0 t0 = t0 ->
+    free_exp_vars e0 = [] ->
+    has_type (ctx_add_var C x t0 e0) e2 t1 ->
+    (forall t3, has_type_pure (ctx_add_var C x t0 e0) e2 t3) ->
+    has_type (ctx_add_var C x t0 e0) e1 (TArrDep y t1 t2) ->
+    has_type (ctx_subst x e0 C) (expr_subst x e0 (EApp e1 e2)) (ty_subst x e0 (ty_subst y e2 t2)).
+
+Axiom subst_base_has_type_ctx_self_hard :
+  forall C x e0 t0 e t,
+    ctx_subst x e0 C = C ->
+    DTDT.machine_inter.value (ctx_subst x e0 C) e0 ->
+    essential_type_is_base_type t0 = true ->
+    has_type_pure (ctx_subst x e0 C) e0 (essential_type t0) ->
+    has_type (ctx_subst x e0 C) e0 t0 ->
+    ty_subst x e0 t0 = t0 ->
+    free_exp_vars e0 = [] ->
+    has_type (ctx_add_var C x t0 e0) e t ->
+    (forall t1, has_type_pure (ctx_add_var C x t0 e0) e t1) ->
+    has_type (ctx_subst x e0 C) (expr_subst x e0 e) (ty_subst x e0 (self t e)).
+
+Axiom subst_base_has_type_ctx_sub_hard :
+  forall C x e0 t0 e t t',
+    ctx_subst x e0 C = C ->
+    DTDT.machine_inter.value (ctx_subst x e0 C) e0 ->
+    essential_type_is_base_type t0 = true ->
+    has_type_pure (ctx_subst x e0 C) e0 (essential_type t0) ->
+    has_type (ctx_subst x e0 C) e0 t0 ->
+    ty_subst x e0 t0 = t0 ->
+    free_exp_vars e0 = [] ->
+    has_type (ctx_add_var C x t0 e0) e t' ->
+    subtype (ctx_add_var C x t0 e0) t' t ->
+    has_type (ctx_subst x e0 C) (expr_subst x e0 e) (ty_subst x e0 t).
+
+Axiom has_type_subst_base_closed_pure_ctx :
+  forall C x e0 t0 e t,
+    ctx_subst x e0 C = C ->
+    DTDT.machine_inter.value (ctx_subst x e0 C) e0 ->
+    essential_type_is_base_type t0 = true ->
+    has_type_pure (ctx_subst x e0 C) e0 (essential_type t0) ->
+    has_type (ctx_subst x e0 C) e0 t0 ->
+    ty_subst x e0 t0 = t0 ->
     free_exp_vars e0 = [] ->
     has_type (ctx_add_var C x t0 e0) e t ->
     has_type (ctx_subst x e0 C) (expr_subst x e0 e) (ty_subst x e0 t).
 
 Lemma subst_base_has_type_ctx :
   forall C x e0 t0 e t,
+    ctx_subst x e0 C = C ->
+    DTDT.machine_inter.value (ctx_subst x e0 C) e0 ->
     essential_type_is_base_type t0 = true ->
     has_type_pure (ctx_subst x e0 C) e0 (essential_type t0) ->
+    has_type (ctx_subst x e0 C) e0 t0 ->
+    ty_subst x e0 t0 = t0 ->
     free_exp_vars e0 = [] ->
     has_type (ctx_add_var C x t0 e0) e t ->
     has_type (ctx_subst x e0 C) (expr_subst x e0 e) (ty_subst x e0 t).
 Proof.
-  intros C x e0 t0 e t Hbeta0 Hpure0 Hclosed Hty.
-  exact (has_type_subst_base_closed_pure_ctx C x e0 t0 e t Hbeta0 Hpure0 Hclosed Hty).
+  intros C x e0 t0 e t Hctx Hv0 Hbeta0 Hpure0 Htyped0 Ht0 Hclosed Hty.
+  exact (has_type_subst_base_closed_pure_ctx C x e0 t0 e t Hctx Hv0 Hbeta0 Hpure0 Htyped0 Ht0 Hclosed Hty).
 Qed.
 
 Lemma subst_base_has_type :
@@ -2763,19 +3127,28 @@ Lemma subst_base_has_type :
     has_type_pure G1 e0 (essential_type t0) ->
     has_type G1 e0 t0 ->
     ctx_subst x e0 G1 = G1 ->
+    ctx_subst x e0 G2 = G2 ->
+    ty_subst x e0 t0 = t0 ->
     free_exp_vars e0 = [] ->
     has_type (ctx_add_var (add_ctx G2 G1) x t0 e0) e t ->
     has_type (add_ctx (ctx_subst x e0 G2) G1) (expr_subst x e0 e) (ty_subst x e0 t).
 Proof.
-  intros G1 G2 x e0 t0 e t Hv0 Hbeta0 Hpure0 Hty0 Hctx Hclosed Hty.
+  intros G1 G2 x e0 t0 e t Hv0 Hbeta0 Hpure0 Hty0 Hctx1 Hctx2 Ht0 Hclosed Hty.
+  assert (Hctx_add : ctx_subst x e0 (add_ctx G2 G1) = add_ctx G2 G1).
+  { exact (ctx_subst_add_ctx_stable G1 G2 x e0 Hctx1 Hctx2). }
   assert (Hpure_ctx : has_type_pure (ctx_subst x e0 (add_ctx G2 G1)) e0 (essential_type t0)).
-  { rewrite ctx_subst_add_ctx.
-    rewrite Hctx.
+  { rewrite Hctx_add.
     apply weakening_has_type_pure_right.
     exact Hpure0. }
-  pose proof (subst_base_has_type_ctx (add_ctx G2 G1) x e0 t0 e t Hbeta0 Hpure_ctx Hclosed Hty) as Hty'.
+  assert (Htyped_ctx : has_type (ctx_subst x e0 (add_ctx G2 G1)) e0 t0).
+  { rewrite Hctx_add.
+    exact (weakening_right G1 G2 e0 t0 Hty0). }
+  assert (Hv_ctx : DTDT.machine_inter.value (ctx_subst x e0 (add_ctx G2 G1)) e0).
+  { rewrite Hctx_add.
+    exact (weakening_value_right G1 G2 e0 Hv0). }
+  pose proof (subst_base_has_type_ctx (add_ctx G2 G1) x e0 t0 e t Hctx_add Hv_ctx Hbeta0 Hpure_ctx Htyped_ctx Ht0 Hclosed Hty) as Hty'.
   rewrite ctx_subst_add_ctx in Hty'.
-  rewrite Hctx in Hty'.
+  rewrite Hctx1 in Hty'.
   exact Hty'.
 Qed.
 
@@ -3295,6 +3668,96 @@ Proof.
       * exact Hlookup2.
     + intros Hbeta.
       split; [reflexivity | exact Hbeta].
+Qed.
+
+Lemma lookup_lemma_const_shadow_split :
+  forall C D x e0 c t witness,
+    const_ctx_lookup (add_ctx D C) c = Some (t, witness) ->
+    exists t' witness',
+      const_ctx_lookup (add_ctx D (ctx_subst x e0 C)) c = Some (t', witness') /\
+      ((t' = ty_subst x e0 t /\ witness' = expr_subst x e0 witness) \/
+       (t' = t /\ witness' = witness)).
+Proof.
+  intros [env1 store1] [env2 store2] x e0 c t witness Hlookup.
+  destruct env1 as [vars1 consts1].
+  destruct env2 as [vars2 consts2].
+  unfold const_ctx_lookup, add_ctx, ctx_subst, binding_subst in *.
+  simpl in *.
+  destruct (consts1 !! c) eqn:Hconsts1.
+  - destruct p as [t1 w1].
+    assert (Hlookup1 : (union consts1 consts2) !! c = Some (t1, w1)).
+    { apply (lookup_union_Some_l consts1 consts2 c (t1, w1)).
+      exact Hconsts1. }
+    assert (Heq : (t, witness) = (t1, w1)) by congruence.
+    inversion Heq; subst t1 w1.
+    exists (ty_subst x e0 t), (expr_subst x e0 witness).
+    split.
+    + apply (lookup_union_Some_l (fmap (binding_subst x e0) consts1) consts2 c
+        (ty_subst x e0 t, expr_subst x e0 witness)).
+      apply lookup_fmap_Some.
+      exists (t, witness).
+      split; [reflexivity | exact Hconsts1].
+    + left. split; reflexivity.
+  - assert (Hlookup2 : consts2 !! c = Some (t, witness)).
+    { eapply lookup_union_Some_inv_r; eauto. }
+    assert (Hconsts1' : (fmap (binding_subst x e0) consts1) !! c = None).
+    { destruct ((fmap (binding_subst x e0) consts1) !! c) eqn:Hfmap.
+      - rewrite lookup_fmap in Hfmap.
+        change ((binding_subst x e0) <$> (consts1 !! c) = Some p) in Hfmap.
+        rewrite Hconsts1 in Hfmap.
+        discriminate.
+      - reflexivity. }
+    exists t, witness.
+    split.
+    + apply lookup_union_Some_raw.
+      right.
+      split; [exact Hconsts1' | exact Hlookup2].
+    + right. split; reflexivity.
+Qed.
+
+Lemma lookup_lemma_store_shadow_split :
+  forall C D x e0 l t witness,
+    store_ctx_lookup (add_ctx D C) l = Some (t, witness) ->
+    exists t' witness',
+      store_ctx_lookup (add_ctx D (ctx_subst x e0 C)) l = Some (t', witness') /\
+      ((t' = ty_subst x e0 t /\ witness' = expr_subst x e0 witness) \/
+       (t' = t /\ witness' = witness)).
+Proof.
+  intros [env1 store1] [env2 store2] x e0 l t witness Hlookup.
+  destruct env1 as [vars1 consts1].
+  destruct env2 as [vars2 consts2].
+  unfold store_ctx_lookup, add_ctx, ctx_subst, binding_subst in *.
+  simpl in *.
+  destruct (store1 !! l) eqn:Hstore1.
+  - destruct p as [t1 w1].
+    assert (Hlookup1 : (union store1 store2) !! l = Some (t1, w1)).
+    { apply (lookup_union_Some_l store1 store2 l (t1, w1)).
+      exact Hstore1. }
+    assert (Heq : (t, witness) = (t1, w1)) by congruence.
+    inversion Heq; subst t1 w1.
+    exists (ty_subst x e0 t), (expr_subst x e0 witness).
+    split.
+    + apply (lookup_union_Some_l (fmap (binding_subst x e0) store1) store2 l
+        (ty_subst x e0 t, expr_subst x e0 witness)).
+      apply lookup_fmap_Some.
+      exists (t, witness).
+      split; [reflexivity | exact Hstore1].
+    + left. split; reflexivity.
+  - assert (Hlookup2 : store2 !! l = Some (t, witness)).
+    { eapply lookup_union_Some_inv_r; eauto. }
+    assert (Hstore1' : (fmap (binding_subst x e0) store1) !! l = None).
+    { destruct ((fmap (binding_subst x e0) store1) !! l) eqn:Hfmap.
+      - rewrite lookup_fmap in Hfmap.
+        change ((binding_subst x e0) <$> (store1 !! l) = Some p) in Hfmap.
+        rewrite Hstore1 in Hfmap.
+        discriminate.
+      - reflexivity. }
+    exists t, witness.
+    split.
+    + apply lookup_union_Some_raw.
+      right.
+      split; [exact Hstore1' | exact Hlookup2].
+    + right. split; reflexivity.
 Qed.
 
 Lemma lookup_lemma_const_shadow_split_simple :
@@ -4095,7 +4558,7 @@ Proof.
     unfold store_ctx_lookup, ctx_add_var in *. simpl in *. exact H.
 Qed.
 
-Axiom entails_subst_base_closed_pure_ctx_fixed :
+Lemma entails_subst_base_closed_pure_ctx_fixed :
   forall C x e0 t0 pred,
     ctx_subst x e0 C = C ->
     DTDT.machine_inter.value (ctx_subst x e0 C) e0 ->
@@ -4104,6 +4567,27 @@ Axiom entails_subst_base_closed_pure_ctx_fixed :
     free_exp_vars e0 = [] ->
     entails (ctx_add_var C x (essential_type t0) e0) pred ->
     entails (ctx_subst x e0 C) (expr_subst x e0 pred).
+Proof.
+  intros C x e0 t0 pred Hctx Hv0 Hbeta _ _ Hent.
+  destruct t0 as [tb | y tb pred0 | t1 t2 | y t1 t2 | t1 t2 | t1];
+    simpl in *; try discriminate.
+  - replace (ctx_add_var C x (TBase tb) e0) with
+      (ctx_add_var (add_ctx empty_ctx (ctx_subst x e0 C)) x (TBase tb) e0) in Hent.
+    2:{ rewrite add_ctx_empty_r. rewrite Hctx. reflexivity. }
+    pose proof (entails_subst_base (ctx_subst x e0 C) empty_ctx x tb e0 pred e0 Hent Hv0) as Hent'.
+    change (entails (add_ctx (ctx_subst x e0 empty_ctx) (ctx_subst x e0 C)) (expr_subst x e0 pred)) in Hent'.
+    simpl in Hent'.
+    rewrite add_ctx_empty_r in Hent'.
+    exact Hent'.
+  - replace (ctx_add_var C x (TBase tb) e0) with
+      (ctx_add_var (add_ctx empty_ctx (ctx_subst x e0 C)) x (TBase tb) e0) in Hent.
+    2:{ rewrite add_ctx_empty_r. rewrite Hctx. reflexivity. }
+    pose proof (entails_subst_base (ctx_subst x e0 C) empty_ctx x tb e0 pred e0 Hent Hv0) as Hent'.
+    change (entails (add_ctx (ctx_subst x e0 empty_ctx) (ctx_subst x e0 C)) (expr_subst x e0 pred)) in Hent'.
+    simpl in Hent'.
+    rewrite add_ctx_empty_r in Hent'.
+    exact Hent'.
+Qed.
 
 Lemma subst_base_entails_ctx_stable :
   forall C x e0 t0 pred,
@@ -4414,6 +4898,27 @@ Qed.
 
 (* Hygiene-instantiated corollaries for Paper Lemma 6.
    These expose the same results with explicit well_formed_ctx premises. *)
+Lemma subst_base_has_type_wf :
+  forall G1 G2 x e0 t0 e t,
+    DTDT.machine_inter.value G1 e0 ->
+    essential_type_is_base_type t0 = true ->
+    has_type_pure G1 e0 (essential_type t0) ->
+    has_type G1 e0 t0 ->
+    well_formed_ctx G1 ->
+    well_formed_ctx G2 ->
+    ~ List.In x (free_ty_vars t0) ->
+    free_exp_vars e0 = [] ->
+    has_type (ctx_add_var (add_ctx G2 G1) x t0 e0) e t ->
+    has_type (add_ctx (ctx_subst x e0 G2) G1) (expr_subst x e0 e) (ty_subst x e0 t).
+Proof.
+  intros G1 G2 x e0 t0 e t Hv0 Hbeta0 Hpure0 Hty0 Hwf1 Hwf2 Hfresh0 Hclosed Hty.
+  exact (subst_base_has_type G1 G2 x e0 t0 e t Hv0 Hbeta0 Hpure0 Hty0
+    (well_formed_ctx_subst_id G1 x e0 Hwf1)
+    (well_formed_ctx_subst_id G2 x e0 Hwf2)
+    (ty_subst_free_ty_vars_fresh x e0 t0 Hfresh0)
+    Hclosed Hty).
+Qed.
+
 Lemma subst_base_has_type_pure_wf :
   forall G1 G2 x e0 t0 e t,
     DTDT.machine_inter.value G1 e0 ->
@@ -4685,6 +5190,76 @@ Proof.
   - eapply POr; eauto.
   - eapply PEq; eauto.
   - eapply PPlus; eauto.
+Qed.
+
+Lemma has_type_pure_change_const_witness :
+  forall (C : ctx) (f : string) (t : i_ty) (w_old w_new e : i_expr) (ty : i_ty),
+    has_type_pure (ctx_add_const C f t w_old) e ty ->
+    has_type_pure (ctx_add_const C f t w_new) e ty.
+Proof.
+  intros C f t w_old w_new e ty Hpure.
+  induction Hpure as
+    [x tyb e0 Hlookup Hbeta
+    | n | b | s | u
+    | c tyc ec Hlookupc Hsimple
+    | e1 e2 t1 t2 Hbeta1 Hty1 IH1 Hty2 IH2
+    | b Hty IH
+    | b1 b2 Hty1 IH1 Hty2 IH2
+    | b1 b2 Hty1 IH1 Hty2 IH2
+    | b1 b2 Hty1 IH1 Hty2 IH2
+    | e1 e2 tb Hty1 IH1 Hty2 IH2
+    | n1 n2 Hty1 IH1 Hty2 IH2].
+  - eapply PVar; eauto.
+  - apply PNat.
+  - apply PBool.
+  - apply PString.
+  - apply PUnit.
+  - destruct (String.eq_dec c f) as [-> | Hneq].
+    + unfold const_ctx_lookup, ctx_add_const in Hlookupc. simpl in Hlookupc.
+      apply lookup_insert_Some in Hlookupc. destruct Hlookupc as [Hcase | Hcase].
+      * destruct Hcase as [_ Hentry]. inversion Hentry; subst.
+        eapply PConst.
+        -- unfold const_ctx_lookup, ctx_add_const. simpl. apply lookup_insert.
+        -- exact Hsimple.
+      * destruct Hcase as [Hneq' _]. contradiction.
+    + eapply PConst.
+      * unfold const_ctx_lookup, ctx_add_const in *. simpl in *.
+        rewrite (lookup_insert_ne (snd (fst C)) f c (t, w_new)) by congruence.
+        rewrite (lookup_insert_ne (snd (fst C)) f c (t, w_old)) in Hlookupc by congruence.
+        exact Hlookupc.
+      * exact Hsimple.
+  - eapply PApp; eauto.
+  - eapply PNot; eauto.
+  - eapply PImp; eauto.
+  - eapply PAnd; eauto.
+  - eapply POr; eauto.
+  - eapply PEq; eauto.
+  - eapply PPlus; eauto.
+Qed.
+
+Lemma ty_valid_change_const_witness :
+  forall ty (C : ctx) (f : string) (t : i_ty) (w_old w_new : i_expr),
+    ty_valid (ctx_add_const C f t w_old) ty ->
+    ty_valid (ctx_add_const C f t w_new) ty.
+Proof.
+  induction ty; intros C f t w_old w_new Hvalid; inversion Hvalid; subst; simpl in *.
+  - apply VBase.
+  - eapply VSet.
+    lazymatch goal with
+    | Hp : has_type_pure (ctx_add_var (ctx_add_const C f t w_old) ?var0 (TBase b) ?v0) ?e0 (TBase BBool) |- _ =>
+        rewrite <- ctx_add_const_var_comm in Hp;
+        exact (has_type_pure_change_const_witness (ctx_add_var C var0 (TBase b) v0) f t w_old w_new e0 (TBase BBool) Hp)
+    end.
+  - eapply VFun; eauto.
+  - eapply VFunDep.
+    + eauto.
+    + lazymatch goal with
+      | Hcod : ty_valid (ctx_add_var (ctx_add_const C f t w_old) ?var0 ?t10 (EVar ?var0)) _ |- _ =>
+          rewrite <- ctx_add_const_var_comm in Hcod;
+          exact (IHty2 (ctx_add_var C var0 t10 (EVar var0)) f t w_old w_new Hcod)
+      end.
+  - eapply VPair; eauto.
+  - eapply VRef; eauto.
 Qed.
 
 Lemma ty_valid_change_var_witness :
@@ -5024,6 +5599,123 @@ Proof.
     { intro Hin. apply Hfresh. apply in_or_app. right. exact Hin. }
     apply PPlus; auto.
 Qed.
+
+Lemma has_type_pure_drop_nonsimple_const :
+  forall C f t w e ty,
+    is_simple_type t = false ->
+    has_type_pure (ctx_add_const C f t w) e ty ->
+    has_type_pure C e ty.
+Proof.
+  intros C f t w e ty Hnonsimple Hpure.
+  induction Hpure as
+    [x tyb e0 Hlookup Hbeta0
+    | n
+    | b
+    | s
+    | u
+    | c tyc ec Hlookupc Hsimple
+    | e1 e2 t1 t2 Hbeta1 Hty1 IH1 Hty2 IH2
+    | b Hty IH
+    | b1 b2 Hty1 IH1 Hty2 IH2
+    | b1 b2 Hty1 IH1 Hty2 IH2
+    | b1 b2 Hty1 IH1 Hty2 IH2
+    | e1 e2 tb Hty1 IH1 Hty2 IH2
+    | n1 n2 Hty1 IH1 Hty2 IH2]; simpl.
+  - eapply PVar; eauto.
+  - apply PNat.
+  - apply PBool.
+  - apply PString.
+  - apply PUnit.
+  - destruct (String.eq_dec c f) as [-> | Hneq].
+    + unfold const_ctx_lookup, ctx_add_const in Hlookupc.
+      simpl in Hlookupc.
+      apply lookup_insert_Some in Hlookupc.
+      destruct Hlookupc as [Hcase | Hcase].
+      * destruct Hcase as [_ Hentry].
+        inversion Hentry; subst.
+        pose proof (bool_prop_eq_true _ Hsimple) as Hsimple_eq.
+        rewrite Hsimple_eq in Hnonsimple.
+        discriminate.
+      * destruct Hcase as [Hneq' _].
+        contradiction.
+    + eapply PConst.
+      * unfold const_ctx_lookup, ctx_add_const in Hlookupc.
+        simpl in Hlookupc.
+        apply lookup_insert_Some in Hlookupc.
+        destruct Hlookupc as [Hcase | Hcase].
+        { destruct Hcase as [Heq _]. congruence. }
+        destruct Hcase as [Hneq' HlookupC].
+        exact HlookupC.
+      * exact Hsimple.
+  - eapply PApp; eauto.
+  - apply PNot. exact IH.
+  - apply PImp; assumption.
+  - apply PAnd; assumption.
+  - apply POr; assumption.
+  - eapply PEq; eauto.
+  - apply PPlus; assumption.
+Qed.
+
+Lemma has_type_pure_nonsimple_const_irrelevant :
+  forall C f t w e ty,
+    is_simple_type t = false ->
+    has_type_pure (ctx_add_const C f t w) e ty ->
+    expr_subst_fun f w e = e.
+Proof.
+  intros C f t w e ty Hnonsimple Hpure.
+  induction Hpure as
+    [x tyb e0 Hlookup Hbeta0
+    | n
+    | b
+    | s
+    | u
+    | c tyc ec Hlookupc Hsimple
+    | e1 e2 t1 t2 Hbeta1 Hty1 IH1 Hty2 IH2
+    | b Hty IH
+    | b1 b2 Hty1 IH1 Hty2 IH2
+    | b1 b2 Hty1 IH1 Hty2 IH2
+    | b1 b2 Hty1 IH1 Hty2 IH2
+    | e1 e2 tb Hty1 IH1 Hty2 IH2
+    | n1 n2 Hty1 IH1 Hty2 IH2]; simpl; try reflexivity.
+  - destruct (String.eq_dec c f) as [-> | Hneq].
+    + unfold const_ctx_lookup, ctx_add_const in Hlookupc.
+      simpl in Hlookupc.
+      apply lookup_insert_Some in Hlookupc.
+      destruct Hlookupc as [Hcase | Hcase].
+      * destruct Hcase as [_ Hentry].
+        inversion Hentry; subst.
+        pose proof (bool_prop_eq_true _ Hsimple) as Hsimple_eq.
+        rewrite Hsimple_eq in Hnonsimple.
+        discriminate.
+      * destruct Hcase as [Hneq' _]. contradiction.
+    + assert ((f =? c)%string = false) by (apply String.eqb_neq; congruence).
+      rewrite H. reflexivity.
+  - rewrite IH1, IH2. reflexivity.
+  - rewrite IH. reflexivity.
+  - rewrite IH1, IH2. reflexivity.
+  - rewrite IH1, IH2. reflexivity.
+  - rewrite IH1, IH2. reflexivity.
+  - rewrite IH1, IH2. reflexivity.
+  - rewrite IH1, IH2. reflexivity.
+Qed.
+Lemma ty_valid_drop_nonsimple_const :
+  forall C f t w ty,
+    is_simple_type t = false ->
+    ty_valid (ctx_add_const C f t w) ty ->
+    ty_valid C ty.
+Proof.
+  intros C f t w ty Hnonsimple Hvalid.
+  dependent induction Hvalid.
+  - apply VBase.
+  - eapply VSet.
+    rewrite <- ctx_add_const_var_comm in H.
+    exact (has_type_pure_drop_nonsimple_const _ f t w _ _ Hnonsimple H).
+  - eapply VFun; eauto.
+  - eapply VFunDep; eauto.
+  - eapply VPair; eauto.
+  - eapply VRef; eauto.
+Qed.
+
 
 Lemma ty_valid_drop_fresh_var :
   forall C x t w ty,
@@ -5977,6 +6669,7 @@ Proof.
       exact (step_lemma_subtype_bool_singleton_forward G1 G2 e e' u (EVar u) C Hstep Hpure).
     + exact Hty.
 Qed.
+
 
 
 
