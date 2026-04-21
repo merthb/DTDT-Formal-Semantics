@@ -307,13 +307,14 @@ Proof.
   - destruct tdom; simpl in Hself; discriminate.
 Qed.
 
-Lemma no_simple_arrow_value_nobindings :
+Lemma canonical_forms_fun_nobindings :
   forall G v tau1 tau2,
     (forall x, var_ctx_lookup G x = None) ->
     (forall c, const_ctx_lookup G c = None) ->
     has_type G v (TArr tau1 tau2) ->
     DTDT.machine_inter.value G v ->
-    False.
+    exists f y tau1' tau2' body,
+      v = EFix f y tau1' tau2' body.
 Proof.
   intros G v tau1 tau2 HnoneVar HnoneConst Hty Hv.
   remember (TArr tau1 tau2) as targ eqn:Heqtarg.
@@ -329,6 +330,7 @@ Proof.
   | Hlookup : var_ctx_lookup _ _ = Some _ |- _ =>
       rewrite HnoneVar in Hlookup; discriminate
   end.
+  all: try solve [do 5 eexists; reflexivity].
   all: try match goal with
   | Hself : self ?tau ?e = TArr _ _ |- _ =>
       apply self_to_TArr in Hself;
@@ -370,13 +372,30 @@ Proof.
   | Hself : self ?tau ?e = TArrDep _ _ _ |- _ =>
       destruct (self_to_TArrDep_cases _ _ _ _ _ Hself) as [Htau | [b [tau2'' Htau]]];
       [ subst; eapply IHHty; eauto
-      | subst; exfalso; eapply no_simple_arrow_value_nobindings; eauto ]
+      | subst;
+        match goal with
+        | Hinner : has_type ?G ?e (TArr (TBase b) tau2'') |- _ =>
+            match goal with
+            | Hv' : DTDT.machine_inter.value ?G ?e |- _ =>
+                edestruct (canonical_forms_fun_nobindings ?G ?e (TBase b) tau2'' HnoneVar HnoneConst Hinner Hv')
+                  as [f [y [t1' [t2' [body Heq]]]]];
+                do 5 eexists; exact Heq
+            end
+        end ]
   end.
   all: try match goal with
   | Hsub : subtype _ _ (TArrDep _ _ _) |- _ =>
       inversion Hsub; subst; try discriminate;
       eapply IHHty; eauto
   end.
+  all: try solve [inversion Heqtarg].
+  all: try solve [repeat eexists; eauto].
+  - destruct (self_to_TArrDep_cases _ _ _ _ _ Heqtarg) as [Htau | [b [tau2'' Htau]]].
+    + subst. eapply IHHty; eauto.
+    + subst.
+      destruct (canonical_forms_fun_nobindings Γ e (TBase b) tau2'' HnoneVar HnoneConst Hty Hv)
+        as [f [y [t1' [t2' [body Heq]]]]].
+      do 5 eexists; exact Heq.
 Qed.
 
 Lemma canonical_forms_base_essential_nobindings :
@@ -1789,6 +1808,7 @@ Proof.
     exact H.
   - eapply VFun; eauto.
   - eapply VFunDep.
+    + exact H.
     + exact IHHvalid1.
     + rewrite ctx_add_var_store_comm.
       exact IHHvalid2.
@@ -2067,6 +2087,7 @@ Proof.
     + exact (IHHsub1 Hlookup).
     + exact (IHHsub2 Hlookup).
   - eapply SFunDep.
+    + exact H.
     + exact (IHHsub1 Hlookup).
     + rewrite ctx_add_var_store_comm.
       apply IHHsub2.
@@ -2187,23 +2208,6 @@ Proof.
   - reflexivity.
 Qed.
 
-Lemma has_type_fix_body :
-  forall G f x t1 t2 e t,
-    has_type G (EFix f x t1 t2 e) t ->
-    ~ List.In x (ty_vars t1) /\
-    ty_valid G (TArrDep x t1 t2) /\
-    has_type (ctx_add_var (ctx_add_const G f (TArrDep x t1 t2) (EFix f x t1 t2 e)) x t1 (EVar x)) e t2.
-Proof.
-  intros G f x t1 t2 e t Hty.
-  remember (EFix f x t1 t2 e) as efix eqn:Heqefix.
-  revert f x t1 t2 e Heqefix.
-  induction Hty; intros f0 x0 t10 t20 e0 Heqefix; subst;
-    try solve [inversion Heqefix].
-  - inversion Heqefix; subst.
-    repeat split; assumption.
-  - exact (IHHty _ _ _ _ _ eq_refl).
-  - exact (IHHty _ _ _ _ _ eq_refl).
-Qed.
 
 
   Lemma step_var_preserves_typing :
@@ -2260,11 +2264,12 @@ Lemma step_const_preserves_typing_runtime :
     Γ !!₂ c = Some (t, e) ->
     value Γ v ->
     has_type Γ (EApp (EConst c) v) τtop ->
-    has_type Γ e τtop.
+    has_type Γ (EApp e v) τtop.
 Proof.
   intros Γ c t e v τtop Hrt Hlookup Hval Hty.
   eapply (runtime_ctx_well_typed_const_step _ Hrt); eauto.
 Qed.
+
 Lemma step_var_preserves_pure_runtime :
   forall G x tbound vbound ty,
     runtime_ctx_well_typed G ->
@@ -2287,7 +2292,7 @@ Lemma step_const_preserves_pure_runtime :
     const_ctx_lookup G c = Some (t, e) ->
     value G v ->
     has_type_pure G (EApp (EConst c) v) ty ->
-    has_type_pure G e ty.
+    has_type_pure G (EApp e v) ty.
 Proof.
   intros G c t e v ty Hrt Hlookup Hval Hpure.
   eapply (runtime_ctx_well_typed_const_step_pure _ Hrt); eauto.
@@ -2355,9 +2360,17 @@ Proof.
     + eapply TLoc.
       rewrite store_lookup_add_neq; [exact H | exact Hneqlx].
   - apply TFail. apply ty_valid_store_update. exact H.
-  - eapply TFun.
+  - eapply TFunDep.
     + exact H.
     + apply ty_valid_store_update. exact H0.
+    + rewrite ctx_add_const_store_comm.
+      rewrite ctx_add_var_store_comm.
+      apply IHHty.
+      unfold store_ctx_lookup, ctx_add_var, ctx_add_const in *.
+      simpl in *.
+      exact Hlookup.
+  - eapply TFun.
+    + apply ty_valid_store_update. exact H.
     + rewrite ctx_add_const_store_comm.
       rewrite ctx_add_var_store_comm.
       apply IHHty.
@@ -3362,10 +3375,12 @@ Proof.
   - rewrite HnoneConst in Hlookup. discriminate.
   - destruct IHfun as [Hv1 | [e1' Hstep1]].
     + destruct IHarg as [Hv2 | [e2' Hstep2]].
-      * exfalso.
-        eapply (no_simple_arrow_value_nobindings G e1 tau1 tau2 HnoneVar HnoneConst).
-        -- exact (has_type_pure_implies_has_type _ _ _ Hfun).
-        -- exact Hv1.
+      * destruct (canonical_forms_fun_nobindings G e1 tau1 tau2 HnoneVar HnoneConst
+          (has_type_pure_implies_has_type _ _ _ Hfun) Hv1)
+          as [f [y [t1' [t2' [body Heq]]]]].
+        subst e1.
+        right. exists (expr_subst_fun f (EFix f y t1' t2' body) (expr_subst y e2 body)).
+        apply StepFix. exact Hv2.
       * right. exists (EApp e1 e2').
         eapply StepCtx with (E := ECAppR e1 ECHole).
         exact Hstep2.
@@ -3496,6 +3511,7 @@ Proof.
     | G0 x t body Hlookup Hbeta
     | G0 l t stored Hlookup
     | G0 t Hvalid
+    | G0 f x t1 t2 body Hnotin Hvalid Hbody IHbody
     | G0 f x t1 t2 body Hvalid Hbody IHbody
     | G0 e1 e2 x t1 t2 Harg IHarg Hpure Hfun IHfun
     | G0 e1 e2 t1 t2 Harg IHarg Hfun IHfun
@@ -3525,6 +3541,7 @@ Proof.
   - left. econstructor. exact Hlookup.
   - right. left. reflexivity.
   - left. econstructor.
+  - left. econstructor.
   - destruct (IHfun Hstore HnoneVar HnoneConst) as [Hvfun | [Hfailfun | [G1 [e1' Hstep1]]]].
     + pose proof (progress_pure_nobindings G0 e2 t1 HnoneVar HnoneConst (Hpure t1)) as Hargprog.
       destruct Hargprog as [Hvarg | [e2' Hstep2]].
@@ -3543,9 +3560,18 @@ Proof.
       eapply StepCtx with (E := ECAppL ECHole e2).
       exact Hstep1.
   - destruct (IHfun Hstore HnoneVar HnoneConst) as [Hvfun | [Hfailfun | [G1 [e1' Hstep1]]]].
-    + exfalso.
-      eapply (no_simple_arrow_value_nobindings G0 e1 t1 t2 HnoneVar HnoneConst);
-        eauto.
+    + destruct (IHarg Hstore HnoneVar HnoneConst) as [Hvarg | [Hfailarg | [G2 [e2' Hstep2]]]].
+      * destruct (canonical_forms_fun_nobindings G0 e1 t1 t2 HnoneVar HnoneConst Hfun Hvfun)
+          as [f' [y [t1' [t2' [body' Heqfun]]]]].
+        subst.
+        right. right. exists G0.
+        exists (expr_subst_fun f' (EFix f' y t1' t2' body') (expr_subst y e2 body')).
+        apply StepFix. exact Hvarg.
+      * subst. right. right. exists G0. exists EFail.
+        eapply StepFail with (E := ECAppR e1 ECHole).
+      * right. right. exists G2. exists (EApp e1 e2').
+        eapply StepCtx with (E := ECAppR e1 ECHole).
+        exact Hstep2.
     + subst. right. right. exists G0. exists EFail.
       eapply StepFail with (E := ECAppL ECHole e2).
     + right. right. exists G1. exists (EApp e1' e2).
@@ -3804,13 +3830,3 @@ Proof.
   exact (Hsafe (empty_ctx, e) (G₀, e₀) Heval empty_ctx e τ eq_refl
     store_well_typed_empty empty_ctx_no_var_bindings empty_ctx_no_const_bindings Hty).
 Qed.
-
-
-
-
-
-
-
-
-
-

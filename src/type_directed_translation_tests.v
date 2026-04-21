@@ -104,6 +104,11 @@ Proof.
     (ENat 0) (ENat 0)
     (TBase BNat) (TBase BNat) (TBase BNat) "u").
   - apply PBoolS.
+  - simpl. intro Hin.
+    repeat match type of Hin with
+    | _ \/ _ => destruct Hin as [Hin | Hin]
+    end.
+    contradiction.
   - eapply ATGetDep with (e' := inter_dref_nat_expr) (τ := TyBase BNat).
     apply has_type_surf_deref_nat_example.
   - apply ATNat.
@@ -128,6 +133,11 @@ Proof.
     (EUnit tt) (EUnit tt)
     (TBase BUnit) (TBase BUnit) (TBase BUnit) "u").
   - apply PBoolS.
+  - simpl. intro Hin.
+    repeat match type of Hin with
+    | _ \/ _ => destruct Hin as [Hin | Hin]
+    end.
+    contradiction.
   - eapply ATSetDep with
       (e1' := inter_dref_nat_expr)
       (e2' := ENat 7)

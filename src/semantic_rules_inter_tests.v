@@ -162,9 +162,10 @@ Lemma has_type_reference_inspecting_function_test :
     (TArrDep "r" (TRef (TBase BNat)) (TBase BNat)).
 Proof.
   unfold ref_inspecting_fun.
-  eapply TFun.
+  eapply TFunDep.
   - simpl. tauto.
   - apply VFunDep.
+    + simpl. tauto.
     + apply VRef. apply VBase.
     + apply VBase.
   - eapply TIf.

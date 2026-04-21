@@ -4,6 +4,8 @@ Require Import DTDT.semantic_rules_surf.
 Require Import DTDT.type_directed_translation.
 Require Import DTDT.foundational_lemmas_inter.
 Require Import DTDT.type_safety_lemmas_inter.
+Require Import Coq.Program.Equality.
+From stdpp Require Import fin_maps.
 
 Lemma trans_ctx_surf_lookup_var :
   forall (Gamma : ctx_surf) (x : string) (tau : ty) (e : expr),
@@ -191,6 +193,17 @@ Proof.
     + apply PPlus; assumption.
 Qed.
 
+Axiom free_exp_vars_trans_expr_partial_subset :
+  forall e e' y,
+    trans_expr_partial e = Some e' ->
+    List.In y (free_exp_vars e') ->
+    List.In y (free_exp_vars_surf e).
+
+Axiom free_ty_vars_trans_type_subset :
+  forall t y,
+    List.In y (free_ty_vars (trans_type t)) ->
+    List.In y (free_ty_vars_surf t).
+
 (* Paper Lemma 12. *)
 Lemma trans_type_preserves_validity :
   forall (Gamma : ctx_surf) (tau : ty),
@@ -216,7 +229,14 @@ Proof.
   - simpl.
     apply VFun; assumption.
   - simpl.
+    assert (Hfresh' : ~ List.In var (free_ty_vars (trans_type t1))).
+    { intro Hin.
+      eapply free_ty_vars_trans_type_subset in Hin.
+      match goal with
+      | Hfresh0 : ~ List.In var (free_ty_vars_surf t1) |- _ => exact (Hfresh0 Hin)
+      end. }
     eapply VFunDep.
+    + exact Hfresh'.
     + exact IHHvalid1.
     + match goal with
       | [ Hv : ty_valid (trans_ctx_surf (ctx_add_var_surf ?G var ?t (ExVar var))) _ |- _ ] =>
@@ -254,7 +274,7 @@ Proof.
     | var tb e Hvalid
     | var tb e c Hvalid Hent
     | t1 t1' t2 t2' Hsub1 Hsub2
-    | var t1 t1' t2 t2' Hsub1 Hsub2
+    | var t1 t1' t2 t2' Hfresh Hsub1 Hsub2
     | t1 t1' t2 t2' Hsub1 Hsub2
     | t t' Hsub1 Hsub2
     | t t' Hsub1 Hsub2].
@@ -272,6 +292,9 @@ Proof.
     + eapply IH. exact Hsub2.
   - simpl in *.
     eapply SFunDep.
+    + assert (Hfresh' : ~ List.In var (free_ty_vars (trans_type t1'))).
+      { intro Hin. apply Hfresh. eapply free_ty_vars_trans_type_subset; eauto. }
+      exact Hfresh'.
     + eapply IH. exact Hsub1.
     + pose proof (IH _ _ _ Hsub2) as Hsub2'.
       rewrite trans_ctx_surf_add_var in Hsub2'.
@@ -296,6 +319,255 @@ Proof.
       * apply SBase.
 Qed.
 
+Lemma insert_twice `{FinMap K M} {A} (m : M A) (i : K) (x y : A) :
+  <[i := x]>(<[i := y]> m) = <[i := x]> m.
+Proof.
+  rewrite insert_insert.
+  destruct (decide (i = i)) as [_|Hdec].
+  - reflexivity.
+  - exfalso. apply Hdec. reflexivity.
+Qed.
+
+Lemma add_var_twice :
+  forall Γ var ty v ty2 v2,
+    ctx_add_var (ctx_add_var Γ var ty v) var ty2 v2 =
+    ctx_add_var Γ var ty2 v2.
+Proof.
+  intros.
+  unfold ctx_add_var.
+  simpl.
+  specialize (insert_twice (Γ ▷vars) var (ty2, v2) (ty, v)).
+  intros.
+  exact (f_equal (fun x => (x, Γ ▷consts, Γ.2)) H).
+Qed.
+
+Lemma existsb_string_eqb_false_notin :
+  forall x xs,
+    existsb (String.eqb x) xs = false ->
+    ~ List.In x xs.
+Proof.
+  intros x xs Hfalse.
+  induction xs.
+  - intro Hin. contradiction.
+  - simpl in Hfalse.
+    destruct (String.eqb x a) eqn:Heq.
+    + discriminate.
+    + intro Hin.
+      simpl in Hin.
+      destruct Hin as [Hin | Hin].
+      * apply String.eqb_neq in Heq. congruence.
+      * apply IHxs; assumption.
+Qed.
+
+Lemma has_type_pure_drop_unused_var :
+  forall C x t w e ty,
+    ~ List.In x (free_exp_vars e) ->
+    has_type_pure (ctx_add_var C x t w) e ty ->
+    has_type_pure C e ty.
+Proof.
+  intros C x t w e ty Hfresh Hpure.
+  induction Hpure; simpl in Hfresh.
+  - destruct (String.eq_dec x0 x) as [-> | Hneq].
+    + exfalso. apply Hfresh. simpl. auto.
+    + eapply PVar.
+      * unfold var_ctx_lookup, ctx_add_var in H. simpl in H.
+        apply lookup_insert_Some in H.
+        destruct H as [Hcase | Hcase].
+        { destruct Hcase as [Heq Hentry]. congruence. }
+        destruct Hcase as [_ Hbase].
+        exact Hbase.
+      * exact H0.
+  - apply PNat.
+  - apply PBool.
+  - apply PString.
+  - apply PUnit.
+  - eapply PConst; eauto.
+  - match goal with
+    | Hty1 : has_type_pure _ ?e_left _,
+      Hty2 : has_type_pure _ ?e_right _ |- _ =>
+        assert (Hfresh1 : ~ List.In x (free_exp_vars e_left));
+        [ intro Hin; apply Hfresh; apply in_or_app; left; exact Hin
+        | assert (Hfresh2 : ~ List.In x (free_exp_vars e_right));
+          [ intro Hin; apply Hfresh; apply in_or_app; right; exact Hin
+          | eapply PApp; eauto ] ]
+    end.
+  - apply PNot. eauto.
+  - match goal with
+    | Hty1 : has_type_pure _ ?e_left _,
+      Hty2 : has_type_pure _ ?e_right _ |- _ =>
+        assert (Hfresh1 : ~ List.In x (free_exp_vars e_left));
+        [ intro Hin; apply Hfresh; apply in_or_app; left; exact Hin
+        | assert (Hfresh2 : ~ List.In x (free_exp_vars e_right));
+          [ intro Hin; apply Hfresh; apply in_or_app; right; exact Hin
+          | apply PImp; auto ] ]
+    end.
+  - match goal with
+    | Hty1 : has_type_pure _ ?e_left _,
+      Hty2 : has_type_pure _ ?e_right _ |- _ =>
+        assert (Hfresh1 : ~ List.In x (free_exp_vars e_left));
+        [ intro Hin; apply Hfresh; apply in_or_app; left; exact Hin
+        | assert (Hfresh2 : ~ List.In x (free_exp_vars e_right));
+          [ intro Hin; apply Hfresh; apply in_or_app; right; exact Hin
+          | apply PAnd; auto ] ]
+    end.
+  - match goal with
+    | Hty1 : has_type_pure _ ?e_left _,
+      Hty2 : has_type_pure _ ?e_right _ |- _ =>
+        assert (Hfresh1 : ~ List.In x (free_exp_vars e_left));
+        [ intro Hin; apply Hfresh; apply in_or_app; left; exact Hin
+        | assert (Hfresh2 : ~ List.In x (free_exp_vars e_right));
+          [ intro Hin; apply Hfresh; apply in_or_app; right; exact Hin
+          | apply POr; auto ] ]
+    end.
+  - match goal with
+    | Hty1 : has_type_pure _ ?e_left _,
+      Hty2 : has_type_pure _ ?e_right _ |- _ =>
+        assert (Hfresh1 : ~ List.In x (free_exp_vars e_left));
+        [ intro Hin; apply Hfresh; apply in_or_app; left; exact Hin
+        | assert (Hfresh2 : ~ List.In x (free_exp_vars e_right));
+          [ intro Hin; apply Hfresh; apply in_or_app; right; exact Hin
+          | eapply PEq; eauto ] ]
+    end.
+  - match goal with
+    | Hty1 : has_type_pure _ ?e_left _,
+      Hty2 : has_type_pure _ ?e_right _ |- _ =>
+        assert (Hfresh1 : ~ List.In x (free_exp_vars e_left));
+        [ intro Hin; apply Hfresh; apply in_or_app; left; exact Hin
+        | assert (Hfresh2 : ~ List.In x (free_exp_vars e_right));
+          [ intro Hin; apply Hfresh; apply in_or_app; right; exact Hin
+          | apply PPlus; auto ] ]
+    end.
+Qed.
+
+Lemma not_in_remove_string_of_not_in :
+  forall x y xs,
+    ~ List.In x xs ->
+    ~ List.In x (remove_string y xs).
+Proof.
+  intros x y xs Hnot Hin.
+  apply Hnot.
+  apply in_remove_string in Hin as [Hin _].
+  exact Hin.
+Qed.
+
+Lemma not_in_remove_string_inv_neq :
+  forall x y xs,
+    x <> y ->
+    ~ List.In x (remove_string y xs) ->
+    ~ List.In x xs.
+Proof.
+  intros x y xs Hneq Hnot Hin.
+  apply Hnot.
+  apply in_remove_string_intro; assumption.
+Qed.
+
+Lemma erase_dep_var_not_in_free_ty_vars_self :
+  forall x tau,
+    ~ List.In x (free_ty_vars (erase_dep_var x tau)).
+Proof.
+  intros x tau.
+  induction tau; simpl.
+  - intro Hin. exact Hin.
+  - destruct (String.eqb_spec x s) as [Heq | Hneq].
+    + subst s. intro Hin.
+      apply in_remove_string in Hin as [_ Hneqself].
+      contradiction.
+    + destruct (existsb (String.eqb x) (free_exp_vars i)) eqn:Hex.
+      * intro Hin. exact Hin.
+      * intro Hin.
+        apply existsb_string_eqb_false_notin in Hex.
+        apply in_remove_string in Hin as [Hin _].
+        exact (Hex Hin).
+  - intros Hin.
+    apply in_app_or in Hin as [Hin | Hin].
+    + exact (IHtau1 Hin).
+    + exact (IHtau2 Hin).
+  - destruct (String.eqb_spec x s) as [Heq | Hneq].
+    + subst s. simpl.
+      intros Hin.
+      apply in_app_or in Hin as [Hin | Hin].
+      * exact (IHtau1 Hin).
+      * exact (IHtau2 Hin).
+    + simpl.
+      intros Hin.
+      apply in_app_or in Hin as [Hin | Hin].
+      * exact (IHtau1 Hin).
+      * apply in_remove_string in Hin as [Hin _].
+        exact (IHtau2 Hin).
+  - intros Hin.
+    apply in_app_or in Hin as [Hin | Hin].
+    + exact (IHtau1 Hin).
+    + exact (IHtau2 Hin).
+  - destruct (existsb (String.eqb x) (free_ty_vars tau)) eqn:Hex.
+    + intro Hin.
+      unfold dref_encoding in Hin.
+      simpl in Hin.
+      apply in_app_or in Hin as [Hin | Hin].
+      * exact (IHtau Hin).
+      * apply in_app_or in Hin as [Hin | Hin].
+        -- exact (IHtau Hin).
+        -- exact Hin.
+    + intro Hin.
+      exact (IHtau Hin).
+Qed.
+
+Lemma free_ty_vars_erase_dep_var_subset :
+  forall x tau y,
+    List.In y (free_ty_vars (erase_dep_var x tau)) ->
+    List.In y (free_ty_vars tau).
+Proof.
+  intros x tau.
+  induction tau; simpl; intros y Hin.
+  - exact Hin.
+  - destruct (String.eqb_spec x s) as [Heqxs | Hneqxs].
+    + exact Hin.
+    + destruct (existsb (String.eqb x) (free_exp_vars i)) eqn:Hex.
+      * exfalso. exact Hin.
+      * exact Hin.
+  - apply in_app_or in Hin as [Hin | Hin].
+    + apply in_or_app. left. exact (IHtau1 _ Hin).
+    + apply in_or_app. right. exact (IHtau2 _ Hin).
+  - destruct (String.eqb_spec x s) as [Heqxs | Hneqxs].
+    + subst s.
+      apply in_app_or in Hin as [Hin | Hin].
+      * apply in_or_app. left. exact (IHtau1 _ Hin).
+      * destruct (String.eq_dec y x) as [Heqyx | Hneqyx].
+        -- subst y. exfalso. exact (erase_dep_var_not_in_free_ty_vars_self x tau2 Hin).
+        -- apply in_or_app. right.
+           eapply in_remove_string_intro.
+           ++ exact Hneqyx.
+           ++ exact (IHtau2 _ Hin).
+    + apply in_app_or in Hin as [Hin | Hin].
+      * apply in_or_app. left. exact (IHtau1 _ Hin).
+      * apply in_or_app. right.
+        apply in_remove_string in Hin as [Hin Hneqys].
+        eapply in_remove_string_intro.
+        -- exact Hneqys.
+        -- exact (IHtau2 _ Hin).
+  - apply in_app_or in Hin as [Hin | Hin].
+    + apply in_or_app. left. exact (IHtau1 _ Hin).
+    + apply in_or_app. right. exact (IHtau2 _ Hin).
+  - destruct (existsb (String.eqb x) (free_ty_vars tau)) eqn:Hex.
+    + unfold dref_encoding in Hin. simpl in Hin.
+      apply in_app_or in Hin as [Hin | Hin].
+      * apply IHtau. exact Hin.
+      * apply in_app_or in Hin as [Hin | Hin].
+        -- apply IHtau. exact Hin.
+        -- exfalso. exact Hin.
+    + exact (IHtau _ Hin).
+Qed.
+
+Lemma erase_dep_var_preserves_not_in_free_ty_vars :
+  forall x y tau,
+    ~ List.In y (free_ty_vars tau) ->
+    ~ List.In y (free_ty_vars (erase_dep_var x tau)).
+Proof.
+  intros x y tau Hnot Hin.
+  apply Hnot.
+  eapply free_ty_vars_erase_dep_var_subset.
+  exact Hin.
+Qed.
+
 (* Paper Lemma 13. *)
 Lemma erase_dep_var_preserves_validity :
   forall (Gamma : ctx_surf) (x : string) (tau : i_ty),
@@ -303,18 +575,47 @@ Lemma erase_dep_var_preserves_validity :
     ty_valid (trans_ctx_surf Gamma) (erase_dep_var x tau).
 Proof. Admitted.
 
+Lemma subtype_type_match_helper :
+  forall Gamma tau1 tau2,
+    subtype Gamma tau1 tau2 ->
+    [|tau1|] = [|tau2|].
+Proof.
+  intros.
+  induction H.
+  - reflexivity.
+  - simpl. reflexivity.
+  - simpl. reflexivity.
+  - simpl. reflexivity.
+  - simpl. rewrite IHsubtype1, IHsubtype2. reflexivity.
+  - simpl. rewrite IHsubtype1, IHsubtype2. reflexivity.
+  - simpl. rewrite IHsubtype1, IHsubtype2. reflexivity.
+  - simpl. rewrite IHsubtype1. reflexivity.
+Qed.
+
 (* Paper Theorem 6. *)
-Lemma soundness_of_type_coercion :
+Theorem soundness_of_type_coercion :
   forall (w : mode) (Gamma : ctx_surf) (e : i_expr) (tau : i_ty) (e' : i_expr) (tau' : i_ty),
     ty_valid (trans_ctx_surf Gamma) tau ->
     ty_valid (trans_ctx_surf Gamma) tau' ->
     coerce w (trans_ctx_surf Gamma) e tau e' tau' ->
     has_type (trans_ctx_surf Gamma) e (erase_i_ty tau) ->
     has_type (trans_ctx_surf Gamma) e' (erase_i_ty tau').
-Proof. Admitted.
+Proof.
+  intros.
+  induction H1; simpl.
+  - pose proof (subtype_type_match_helper _ _ _ H1).
+    rewrite <- H3. assumption.
+  - destruct H3.
+    + rewrite H3 in H, H2. simpl in H2. admit.
+    + rewrite H3 in H, H2. simpl in H2. admit.
+  - destruct (x =? y)%string.
+    + simpl in *. pose proof (subtype_type_match_helper _ _ _ H3).
+      rewrite H5. admit.
+    +
+Admitted.
 
 (* Paper Theorems 2 and 7. *)
-Lemma soundness_of_translation :
+Theorem soundness_of_translation :
   forall (w : mode) (Gamma : ctx_surf) (e : expr) (e' : i_expr) (tau : i_ty),
     has_type_surf w Gamma e e' tau ->
     has_type (trans_ctx_surf Gamma) e' (erase_i_ty tau).

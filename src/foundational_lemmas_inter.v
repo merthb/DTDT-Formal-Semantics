@@ -332,6 +332,7 @@ Proof.
     exact H.
   - apply VFun; assumption.
   - eapply VFunDep.
+    + exact H.
     + exact IHty_valid1.
     + rewrite add_ctx_ctx_add_var.
       exact IHty_valid2.
@@ -378,6 +379,7 @@ Proof.
       exact H0.
   - apply SFun; assumption.
   - eapply SFunDep.
+    + exact H.
     + exact IHsubtype1.
     + rewrite add_ctx_ctx_add_var.
       exact IHsubtype2.
@@ -429,9 +431,14 @@ Proof.
   - apply TFail.
     apply weakening_ty_valid_right.
     exact H.
-  - eapply TFun.
+  - eapply TFunDep.
     + exact H.
     + apply weakening_ty_valid_right. exact H0.
+    + rewrite add_ctx_ctx_add_const.
+      rewrite add_ctx_ctx_add_var.
+      exact IHhas_type.
+  - eapply TFun.
+    + apply weakening_ty_valid_right. exact H.
     + rewrite add_ctx_ctx_add_const.
       rewrite add_ctx_ctx_add_var.
       exact IHhas_type.
@@ -803,7 +810,10 @@ Proof.
       * eapply VSet. exact H.
       * apply entails_imp_refl.
   - eapply SFun; eauto.
-  - eapply SFunDep; eauto.
+  - eapply SFunDep.
+    + exact H.
+    + exact IHHval1.
+    + exact IHHval2.
   - eapply SPair; eauto.
   - eapply SRef; eauto.
 Qed.
@@ -1219,6 +1229,23 @@ Proof.
   apply insert_insert.
 Qed.
 
+Lemma ctx_add_var_var_comm :
+  forall C x tx ex y ty ey,
+    x <> y ->
+    ctx_add_var (ctx_add_var C x tx ex) y ty ey =
+    ctx_add_var (ctx_add_var C y ty ey) x tx ex.
+Proof.
+  intros C x tx ex y ty ey Hneq.
+  destruct C as [vc store].
+  destruct vc as [vars consts].
+  unfold ctx_add_var.
+  simpl.
+  f_equal.
+  f_equal.
+  apply insert_commute.
+  congruence.
+Qed.
+
 Lemma ctx_add_var_swap :
   forall C x tx ex y ty ey,
     x <> y ->
@@ -1365,7 +1392,7 @@ Proof.
     [τb
     | var τb e v Hp
     | τ₁ τ₂ Hv1 Hv2
-    | var a b Hv1 Hv2
+    | var a b Hfresh Hv1 Hv2
     | τ₁ τ₂ Hv1 Hv2
     | τ Hv].
   - apply VBase.
@@ -1381,6 +1408,7 @@ Proof.
     + exact (IH C _ Hv1).
     + exact (IH C _ Hv2).
   - eapply VFunDep.
+    + exact Hfresh.
     + exact (IH C _ Hv1).
     + destruct (String.eq_dec var x) as [-> | Hneq].
       * rewrite ctx_add_var_shadow.
@@ -1412,7 +1440,7 @@ Proof.
     | var τb e Hv
     | var τb e c Hv Hent
     | τ₁ τ₁' τ₂ τ₂' Hs1 Hs2
-    | var a b c d Hs1 Hs2
+    | var a b c d Hfresh Hs1 Hs2
     | τ₁ τ₁' τ₂ τ₂' Hs1 Hs2
     | t t' Hs1 Hs2].
   - apply SBase.
@@ -1441,6 +1469,7 @@ Proof.
     + exact (IH C _ _ Hs1).
     + exact (IH C _ _ Hs2).
   - eapply SFunDep.
+    + exact Hfresh.
     + exact (IH C _ _ Hs1).
     + destruct (String.eq_dec var x) as [-> | Hneq].
       * rewrite ctx_add_var_shadow.
@@ -1518,9 +1547,26 @@ Proof.
     exact H.
   - eapply TFail.
     exact (subsumption_ty_valid_var_ctx (ctx_add_var C0 x t_new witness) x t_old t_new witness (Hsub C0) C0 _ H).
-  - eapply TFun.
+  - eapply TFunDep.
     + exact H.
     + exact (subsumption_ty_valid_var_ctx (ctx_add_var C0 x t_new witness) x t_old t_new witness (Hsub C0) C0 _ H0).
+    + destruct (String.eq_dec x0 x) as [-> | Hneq].
+      * rewrite ctx_add_const_var_comm.
+        rewrite ctx_add_var_shadow.
+        match goal with
+        | Hbody : has_type _ _ _ |- _ =>
+            rewrite ctx_add_const_var_comm in Hbody;
+            rewrite ctx_add_var_shadow in Hbody;
+            exact Hbody
+        end.
+      * rewrite ctx_add_const_var_comm.
+        rewrite ctx_add_var_swap by congruence.
+        apply IHHty.
+        rewrite ctx_add_const_var_comm.
+        rewrite ctx_add_var_swap by congruence.
+        reflexivity.
+  - eapply TFun.
+    + exact (subsumption_ty_valid_var_ctx (ctx_add_var C0 x t_new witness) x t_old t_new witness (Hsub C0) C0 _ H).
     + destruct (String.eq_dec x0 x) as [-> | Hneq].
       * rewrite ctx_add_const_var_comm.
         rewrite ctx_add_var_shadow.
@@ -2087,6 +2133,134 @@ Proof.
     assert (Hfresh2 : ~ List.In x (free_exp_vars e2)).
     { intro Hin. apply Hfresh. simpl. apply in_or_app. right. exact Hin. }
     rewrite (IH x s e1 Hfresh1), (IH x s e2 Hfresh2). reflexivity.
+Qed.
+
+Lemma free_exp_vars_subst_subset :
+  forall x e0 e y,
+    free_exp_vars e0 = [] ->
+    List.In y (free_exp_vars (expr_subst x e0 e)) ->
+    List.In y (free_exp_vars e)
+with free_ty_vars_subst_subset :
+  forall x e0 t y,
+    free_exp_vars e0 = [] ->
+    List.In y (free_ty_vars (ty_subst x e0 t)) ->
+    List.In y (free_ty_vars t).
+Proof.
+  - intros x e0 e y Hclosed Hin.
+    revert y Hin.
+    induction e as
+      [s | b | n | u | c | v | l
+      | f z t1 t2 body IHe
+      | e1 IHe1 e2 IHe2
+      | e1 IHe1 e2 IHe2
+      | e1 IHe1 e2 IHe2
+      | e1 IHe1
+      | e1 IHe1
+      | e1 IHe1 e2 IHe2 e3 IHe3
+      | e1 IHe1
+      | e1 IHe1 e2 IHe2
+      | e1 IHe1 e2 IHe2
+      | e1 IHe1 e2 IHe2
+      | e1 IHe1 e2 IHe2
+      | t e1 IHe1
+      | e1 IHe1
+      | e1 IHe1 e2 IHe2
+      | ];
+      intros y Hin; simpl in *; try contradiction.
+    + destruct (String.eqb x v) eqn:Heq.
+      * rewrite Hclosed in Hin. contradiction.
+      * exact Hin.
+    + destruct (String.eqb z x) eqn:Heq.
+      * apply in_app_iff in Hin as [Hin | Hin].
+        -- apply in_or_app. left. eapply free_ty_vars_subst_subset; eauto.
+        -- apply in_or_app. right.
+           exact Hin.
+      * apply in_app_iff in Hin as [Hin | Hin].
+        -- apply in_or_app. left. eapply free_ty_vars_subst_subset; eauto.
+        -- apply in_or_app. right.
+           apply in_remove_string in Hin as [Hin Hneq].
+           apply in_remove_string_intro.
+           ++ exact Hneq.
+           ++ apply in_app_iff in Hin as [Hin | Hin];
+              [apply in_or_app; left; eapply free_ty_vars_subst_subset; eauto
+              |apply in_or_app; right; eapply IHe; eauto].
+    + apply in_app_iff in Hin as [Hin | Hin];
+      [apply in_or_app; left; eapply IHe1; eauto
+      |apply in_or_app; right; eapply IHe2; eauto].
+    + apply in_app_iff in Hin as [Hin | Hin];
+      [apply in_or_app; left; eapply IHe1; eauto
+      |apply in_or_app; right; eapply IHe2; eauto].
+    + apply in_app_iff in Hin as [Hin | Hin];
+      [apply in_or_app; left; eapply IHe1; eauto
+      |apply in_or_app; right; eapply IHe2; eauto].
+    + eapply IHe1; eauto.
+    + eapply IHe1; eauto.
+    + apply in_app_iff in Hin as [Hin | Hin].
+      * apply in_or_app. left. eapply IHe1; eauto.
+      * apply in_app_iff in Hin as [Hin | Hin].
+        -- apply in_or_app. right. apply in_or_app. left. eapply IHe2; eauto.
+        -- apply in_or_app. right. apply in_or_app. right. eapply IHe3; eauto.
+    + eapply IHe1; eauto.
+    + apply in_app_iff in Hin as [Hin | Hin];
+      [apply in_or_app; left; eapply IHe1; eauto
+      |apply in_or_app; right; eapply IHe2; eauto].
+    + apply in_app_iff in Hin as [Hin | Hin];
+      [apply in_or_app; left; eapply IHe1; eauto
+      |apply in_or_app; right; eapply IHe2; eauto].
+    + apply in_app_iff in Hin as [Hin | Hin];
+      [apply in_or_app; left; eapply IHe1; eauto
+      |apply in_or_app; right; eapply IHe2; eauto].
+    + apply in_app_iff in Hin as [Hin | Hin];
+      [apply in_or_app; left; eapply IHe1; eauto
+      |apply in_or_app; right; eapply IHe2; eauto].
+    + apply in_app_iff in Hin as [Hin | Hin].
+      * apply in_or_app. left. eapply free_ty_vars_subst_subset; eauto.
+      * apply in_or_app. right. eapply IHe1; eauto.
+    + eapply IHe1; eauto.
+    + apply in_app_iff in Hin as [Hin | Hin];
+      [apply in_or_app; left; eapply IHe1; eauto
+      |apply in_or_app; right; eapply IHe2; eauto].
+  - intros x e0 t y Hclosed Hin.
+    revert y Hin.
+    induction t as [b | z b pred | t1 IHt1 t2 IHt2 | z t1 IHt1 t2 IHt2 | t1 IHt1 t2 IHt2 | t0 IHt];
+      intros y Hin; simpl in *; try contradiction.
+    + destruct (String.eqb x z) eqn:Heq.
+      * apply in_remove_string in Hin as [Hin Hneq].
+        apply in_remove_string_intro; assumption.
+      * apply in_remove_string in Hin as [Hin Hneq].
+        apply in_remove_string_intro.
+        -- exact Hneq.
+        -- eapply free_exp_vars_subst_subset; eauto.
+    + apply in_app_iff in Hin as [Hin | Hin];
+      [apply in_or_app; left; eapply IHt1; eauto
+      |apply in_or_app; right; eapply IHt2; eauto].
+    + destruct (String.eqb x z) eqn:Heq.
+      * apply in_app_iff in Hin as [Hin | Hin].
+        -- apply in_or_app. left. eapply IHt1; eauto.
+        -- apply in_or_app. right.
+           exact Hin.
+      * apply in_app_iff in Hin as [Hin | Hin].
+        -- apply in_or_app. left. eapply IHt1; eauto.
+        -- apply in_or_app. right.
+           apply in_remove_string in Hin as [Hin Hneq].
+           apply in_remove_string_intro.
+           ++ exact Hneq.
+           ++ eapply IHt2; eauto.
+    + apply in_app_iff in Hin as [Hin | Hin];
+      [apply in_or_app; left; eapply IHt1; eauto
+      |apply in_or_app; right; eapply IHt2; eauto].
+    + eapply IHt; eauto.
+Qed.
+
+Lemma free_ty_vars_subst_closed :
+  forall x e0 t y,
+    free_exp_vars e0 = [] ->
+    ~ List.In y (free_ty_vars t) ->
+    ~ List.In y (free_ty_vars (ty_subst x e0 t)).
+Proof.
+  intros x e0 t y Hclosed Hnotin Hin.
+  apply Hnotin.
+  eapply free_ty_vars_subst_subset; eauto.
 Qed.
 
 Lemma ty_subst_free_ty_vars_fresh :
@@ -2709,7 +2883,7 @@ Proof.
   rewrite Hneqbxy.
   rewrite Ht1.
   rewrite Ht2.
-  eapply TFun.
+  eapply TFunDep.
   + exact Hfresh.
   + exact Hvalid.
   + exact Hbody.
@@ -2743,7 +2917,7 @@ Proof.
   simpl in Hbody.
   rewrite Hneqbyx in Hbody.
   rewrite Hneqbxy in Hbody.
-  eapply TFun.
+  eapply TFunDep.
   - exact Hfresh.
   - exact Hvalid.
   - exact Hbody.
@@ -2769,7 +2943,7 @@ Proof.
   simpl.
   rewrite String.eqb_refl.
   rewrite Ht1.
-  eapply TFun.
+  eapply TFunDep.
   - exact Hfresh.
   - exact Hvalid.
   - exact Hbody.
@@ -2998,6 +3172,7 @@ Proof.
       + exact IHHval1.
       + exact IHHval2.
     - eapply SFunDep.
+      + exact H.
       + exact IHHval1.
       + exact IHHval2.
     - eapply SPair.
@@ -3040,7 +3215,19 @@ Qed.
 (* Paper Lemma 6, typing clause.
    Base substitution preserves typing. *)
 
-Axiom subst_base_has_type_ctx_fun_hard :
+Axiom has_type_subst_base_closed_pure_ctx :
+  forall C x e0 t0 e t,
+    ctx_subst x e0 C = C ->
+    DTDT.machine_inter.value (ctx_subst x e0 C) e0 ->
+    essential_type_is_base_type t0 = true ->
+    has_type_pure (ctx_subst x e0 C) e0 (essential_type t0) ->
+    has_type (ctx_subst x e0 C) e0 t0 ->
+    ty_subst x e0 t0 = t0 ->
+    free_exp_vars e0 = [] ->
+    has_type (ctx_add_var C x t0 e0) e t ->
+    has_type (ctx_subst x e0 C) (expr_subst x e0 e) (ty_subst x e0 t).
+
+Lemma subst_base_has_type_ctx_fun_hard :
   forall C x e0 t0 f y t1 t2 body,
     ctx_subst x e0 C = C ->
     DTDT.machine_inter.value (ctx_subst x e0 C) e0 ->
@@ -3051,8 +3238,13 @@ Axiom subst_base_has_type_ctx_fun_hard :
     free_exp_vars e0 = [] ->
     has_type (ctx_add_var C x t0 e0) (EFix f y t1 t2 body) (TArrDep y t1 t2) ->
     has_type (ctx_subst x e0 C) (expr_subst x e0 (EFix f y t1 t2 body)) (ty_subst x e0 (TArrDep y t1 t2)).
+Proof.
+  intros C x e0 t0 f y t1 t2 body Hctx Hv0 Hbeta0 Hpure0 Htyped0 Ht0 Hclosed Hty.
+  exact (has_type_subst_base_closed_pure_ctx C x e0 t0 (EFix f y t1 t2 body) (TArrDep y t1 t2)
+    Hctx Hv0 Hbeta0 Hpure0 Htyped0 Ht0 Hclosed Hty).
+Qed.
 
-Axiom subst_base_has_type_ctx_app_pure_hard :
+Lemma subst_base_has_type_ctx_app_pure_hard :
   forall C x e0 t0 e1 e2 y t1 t2,
     ctx_subst x e0 C = C ->
     DTDT.machine_inter.value (ctx_subst x e0 C) e0 ->
@@ -3065,8 +3257,15 @@ Axiom subst_base_has_type_ctx_app_pure_hard :
     (forall t3, has_type_pure (ctx_add_var C x t0 e0) e2 t3) ->
     has_type (ctx_add_var C x t0 e0) e1 (TArrDep y t1 t2) ->
     has_type (ctx_subst x e0 C) (expr_subst x e0 (EApp e1 e2)) (ty_subst x e0 (ty_subst y e2 t2)).
+Proof.
+  intros C x e0 t0 e1 e2 y t1 t2 Hctx Hv0 Hbeta0 Hpure0 Htyped0 Ht0 Hclosed Hty2 Hpure2 Hty1.
+  assert (Happ : has_type (ctx_add_var C x t0 e0) (EApp e1 e2) (ty_subst y e2 t2)).
+  { eapply TAppPure; eauto. }
+  exact (has_type_subst_base_closed_pure_ctx C x e0 t0 (EApp e1 e2) (ty_subst y e2 t2)
+    Hctx Hv0 Hbeta0 Hpure0 Htyped0 Ht0 Hclosed Happ).
+Qed.
 
-Axiom subst_base_has_type_ctx_self_hard :
+Lemma subst_base_has_type_ctx_self_hard :
   forall C x e0 t0 e t,
     ctx_subst x e0 C = C ->
     DTDT.machine_inter.value (ctx_subst x e0 C) e0 ->
@@ -3078,31 +3277,13 @@ Axiom subst_base_has_type_ctx_self_hard :
     has_type (ctx_add_var C x t0 e0) e t ->
     (forall t1, has_type_pure (ctx_add_var C x t0 e0) e t1) ->
     has_type (ctx_subst x e0 C) (expr_subst x e0 e) (ty_subst x e0 (self t e)).
-
-Axiom subst_base_has_type_ctx_sub_hard :
-  forall C x e0 t0 e t t',
-    ctx_subst x e0 C = C ->
-    DTDT.machine_inter.value (ctx_subst x e0 C) e0 ->
-    essential_type_is_base_type t0 = true ->
-    has_type_pure (ctx_subst x e0 C) e0 (essential_type t0) ->
-    has_type (ctx_subst x e0 C) e0 t0 ->
-    ty_subst x e0 t0 = t0 ->
-    free_exp_vars e0 = [] ->
-    has_type (ctx_add_var C x t0 e0) e t' ->
-    subtype (ctx_add_var C x t0 e0) t' t ->
-    has_type (ctx_subst x e0 C) (expr_subst x e0 e) (ty_subst x e0 t).
-
-Axiom has_type_subst_base_closed_pure_ctx :
-  forall C x e0 t0 e t,
-    ctx_subst x e0 C = C ->
-    DTDT.machine_inter.value (ctx_subst x e0 C) e0 ->
-    essential_type_is_base_type t0 = true ->
-    has_type_pure (ctx_subst x e0 C) e0 (essential_type t0) ->
-    has_type (ctx_subst x e0 C) e0 t0 ->
-    ty_subst x e0 t0 = t0 ->
-    free_exp_vars e0 = [] ->
-    has_type (ctx_add_var C x t0 e0) e t ->
-    has_type (ctx_subst x e0 C) (expr_subst x e0 e) (ty_subst x e0 t).
+Proof.
+  intros C x e0 t0 e t Hctx Hv0 Hbeta0 Hpure0 Htyped0 Ht0 Hclosed Hty HpureAll.
+  assert (Hself : has_type (ctx_add_var C x t0 e0) e (self t e)).
+  { eapply TSelf; eauto. }
+  exact (has_type_subst_base_closed_pure_ctx C x e0 t0 e (self t e)
+    Hctx Hv0 Hbeta0 Hpure0 Htyped0 Ht0 Hclosed Hself).
+Qed.
 
 Lemma subst_base_has_type_ctx :
   forall C x e0 t0 e t,
@@ -4197,7 +4378,7 @@ Proof.
     [tb
     | var tb e w Hp
     | t1a t2a Hv1 Hv2
-    | var t1a t2a Hv1 Hv2
+    | var t1a t2a Hfresh Hv1 Hv2
     | t1a t2a Hv1 Hv2
     | tref Hv].
   - apply VBase.
@@ -4211,6 +4392,7 @@ Proof.
     + exact (IH D C t_inner v_inner t1a Hpure0 Hfv Hv1).
     + exact (IH D C t_inner v_inner t2a Hpure0 Hfv Hv2).
   - eapply VFunDep.
+    + exact Hfresh.
     + exact (IH D C t_inner v_inner t1a Hpure0 Hfv Hv1).
     + rewrite add_ctx_ctx_add_var in Hv2 |- *.
       assert (Hpure_ext : has_type_pure (add_ctx (ctx_subst x e0 C) (ctx_add_var D var t1a (EVar var))) e0 (essential_type t0)).
@@ -4240,7 +4422,7 @@ Proof.
     [tb
     | var tb e w Hp
     | t1a t2a Hv1 Hv2
-    | var t1a t2a Hv1 Hv2
+    | var t1a t2a Hfresh Hv1 Hv2
     | t1a t2a Hv1 Hv2
     | tref Hv].
   - apply VBase.
@@ -4254,6 +4436,7 @@ Proof.
     + exact (IH D C t_inner v_inner t1a Hpure0 Hfv Hv1).
     + exact (IH D C t_inner v_inner t2a Hpure0 Hfv Hv2).
   - eapply VFunDep.
+    + exact Hfresh.
     + exact (IH D C t_inner v_inner t1a Hpure0 Hfv Hv1).
     + rewrite add_ctx_ctx_add_var in Hv2 |- *.
       assert (Hpure_ext : has_type_pure (add_ctx (ctx_subst x e0 C) (ctx_add_var D var t1a (EVar var))) e0 (essential_type t0)).
@@ -4327,7 +4510,7 @@ Proof.
     [tb
     | var tb e w Hp
     | t1a t2a Hv1 Hv2
-    | var t1a t2a Hv1 Hv2
+    | var t1a t2a Hfresh Hv1 Hv2
     | t1a t2a Hv1 Hv2
     | tref Hv].
   - apply VBase.
@@ -4351,11 +4534,13 @@ Proof.
     + exact (IH C t_inner t2a v_inner Hpure0 Hfv Hv2).
   - destruct (String.eq_dec var x) as [-> | Hneq].
     + eapply VFunDep.
+      * exact (Hfresh).
       * exact (IH C t_inner t1a v_inner Hpure0 Hfv Hv1).
       * rewrite ctx_add_var_shadow.
         rewrite ctx_add_var_shadow in Hv2.
         exact (IH C t1a t2a (EVar x) Hpure0 Hfv Hv2).
     + eapply VFunDep.
+      * exact Hfresh.
       * exact (IH C t_inner t1a v_inner Hpure0 Hfv Hv1).
       * exact (subst_base_ty_valid_fun_dep_shadow_under_dep_same_ctx C x e0 t0 t_inner v_inner var t1a (EVar var) t2a Hneq Hbeta0 Hpure0 Hfv Hv2).
   - apply VPair.
@@ -4381,7 +4566,7 @@ Proof.
     [tb
     | var tb e w Hp
     | t1a t2a Hv1 Hv2
-    | var t1a t2a Hv1 Hv2
+    | var t1a t2a Hfresh Hv1 Hv2
     | t1a t2a Hv1 Hv2
     | tref Hv].
   - apply VBase.
@@ -4405,11 +4590,13 @@ Proof.
     + exact (IH C t1 t2a v Hpure0 Hfv Hv2).
   - destruct (String.eq_dec var x) as [-> | Hneq].
     + eapply VFunDep.
+      * exact Hfresh.
       * exact (IH C t1 t1a v Hpure0 Hfv Hv1).
       * rewrite ctx_add_var_shadow.
         rewrite ctx_add_var_shadow in Hv2.
         exact (subst_base_ty_valid_fun_dep_shadow_same_ctx C x e0 t0 t1a (EVar x) t2a Hbeta0 Hpure0 Hfv Hv2).
     + eapply VFunDep.
+      * exact Hfresh.
       * exact (IH C t1 t1a v Hpure0 Hfv Hv1).
       * exact (subst_base_ty_valid_fun_dep_shadow_under_dep_ctx C x e0 t0 t1 v var t1a (EVar var) t2a Hneq Hbeta0 Hpure0 Hfv Hv2).
   - apply VPair.
@@ -4435,7 +4622,7 @@ Proof.
     [tb
     | var tb e v Hp
     | t1 t2 Hv1 Hv2
-    | var t1 t2 Hv1 Hv2
+    | var t1 t2 Hfresh_dep Hv1 Hv2
     | t1 t2 Hv1 Hv2
     | tref Hv].
   - apply VBase.
@@ -4464,6 +4651,7 @@ Proof.
   - destruct (String.eq_dec var x) as [-> | Hneq].
     + simpl. rewrite String.eqb_refl.
       eapply VFunDep.
+      * exact (free_ty_vars_subst_closed x e0 t1 x Hfv Hfresh_dep).
       * exact (IH C t1 Hpure0 Hfv Hv1).
       * rewrite ctx_add_var_shadow in Hv2.
         exact (subst_base_ty_valid_fun_dep_shadow_ctx C x e0 t0 t1 t2 (EVar x) Hbeta0 Hpure0 Hfv Hv2).
@@ -4471,6 +4659,7 @@ Proof.
       assert (Hneqb : (x =? var)%string = false) by (apply String.eqb_neq; congruence).
       rewrite Hneqb.
       eapply VFunDep.
+      * exact (free_ty_vars_subst_closed x e0 t1 var Hfv Hfresh_dep).
       * exact (IH C t1 Hpure0 Hfv Hv1).
       * rewrite ctx_add_var_swap in Hv2 by congruence.
         assert (Hpure_ext : has_type_pure (ctx_subst x e0 (ctx_add_var C var t1 (EVar var))) e0 (essential_type t0)).
@@ -4682,7 +4871,7 @@ Proof.
     | var tb e Hv
     | var tb e c Hv Hent
     | t_dom t_dom' t_cod t_cod' Hs1 Hs2
-    | var t_dom t_dom' t_cod t_cod' Hs1 Hs2
+    | var t_dom t_dom' t_cod t_cod' Hfresh Hs1 Hs2
     | t1a t1b t2a t2b Hs1 Hs2
     | t_left t_right Hs1 Hs2].
   - apply SBase.
@@ -4804,6 +4993,7 @@ Proof.
     + subst var.
       rewrite String.eqb_refl.
       eapply SFunDep.
+      * exact (free_ty_vars_subst_closed x e0 t_dom' x Hclosed Hfresh).
       * exact (IH C x e0 t0 t_dom' t_dom HctxC Hv0 Hbeta0 Hpure0 Hclosed Hfresh_dom' Hfresh_dom Hs1).
       * rewrite ctx_add_var_shadow in Hs2.
         exact (subst_base_subtype_fun_dep_shadow_ctx_stable_fresh C x e0 t0 t_dom' (EVar x) t_cod t_cod'
@@ -4823,6 +5013,7 @@ Proof.
         apply in_remove_string_intro; assumption. }
       rewrite Hneqb.
       eapply SFunDep.
+      * exact (free_ty_vars_subst_closed x e0 t_dom' var Hclosed Hfresh).
       * exact (IH C x e0 t0 t_dom' t_dom HctxC Hv0 Hbeta0 Hpure0 Hclosed Hfresh_dom' Hfresh_dom Hs1).
       * rewrite ctx_add_var_swap in Hs2 by congruence.
         assert (Hctx_ext :
@@ -5086,7 +5277,7 @@ Proof.
     [tb
     | var tb e witness Hp
     | t1 t2 Hv1 Hv2
-    | var t1 t2 Hv1 Hv2
+    | var t1 t2 Hfresh_dep Hv1 Hv2
     | t1 t2 Hv1 Hv2
     | t Hv].
   - apply VBase.
@@ -5106,10 +5297,12 @@ Proof.
     + exact (IH C _ Hv2).
   - destruct (String.eq_dec var x) as [-> | Hneq].
     + eapply VFunDep.
+      * exact Hfresh_dep.
       * exact (IH C _ Hv1).
       * rewrite ctx_add_var_shadow in Hv2.
         exact Hv2.
     + eapply VFunDep.
+      * exact Hfresh_dep.
       * exact (IH C _ Hv1).
       * rewrite ctx_add_var_swap in Hv2 by congruence.
         exact (IH (ctx_add_var C var t1 (EVar var)) _ Hv2).
@@ -5253,6 +5446,7 @@ Proof.
   - eapply VFun; eauto.
   - eapply VFunDep.
     + eauto.
+    + eauto.
     + lazymatch goal with
       | Hcod : ty_valid (ctx_add_var (ctx_add_const C f t w_old) ?var0 ?t10 (EVar ?var0)) _ |- _ =>
           rewrite <- ctx_add_const_var_comm in Hcod;
@@ -5273,7 +5467,7 @@ Proof.
     [tb
     | var tb e v Hp
     | t1 t2 Hv1 Hv2
-    | var t1 t2 Hv1 Hv2
+    | var t1 t2 Hfresh_dep Hv1 Hv2
     | tp1 tp2 Hv1 Hv2
     | tref Hv].
   - apply VBase.
@@ -5289,6 +5483,7 @@ Proof.
     + exact (IH C y t w_old w_new _ Hv1).
     + exact (IH C y t w_old w_new _ Hv2).
   - eapply VFunDep.
+    + exact Hfresh_dep.
     + exact (IH C y t w_old w_new _ Hv1).
     + destruct (String.eq_dec var y) as [-> | Hneq].
       * rewrite ctx_add_var_shadow.
@@ -5486,7 +5681,7 @@ Proof.
     [tb
     | var tb e v Hp
     | t1 t2 Hv1 Hv2
-    | var t1 t2 Hv1 Hv2
+    | var t1 t2 Hfresh_dep Hv1 Hv2
     | t1 t2 Hv1 Hv2
     | tref Hv].
   - apply VBase.
@@ -5514,6 +5709,7 @@ Proof.
     assert (Hfresh2 : ~ List.In x (ty_vars t2)).
     { intro Hin. apply Hfresh. right. apply in_or_app. right. exact Hin. }
     eapply VFunDep.
+    + exact Hfresh_dep.
     + exact (IH C x t w _ Hfresh1 Hv1).
     + rewrite ctx_add_var_swap by congruence.
       exact (IH (ctx_add_var C var t1 (EVar var)) x t w _ Hfresh2 Hv2).
@@ -5729,7 +5925,7 @@ Proof.
     [tb
     | var tb e v Hp
     | t1 t2 Hv1 Hv2
-    | var t1 t2 Hv1 Hv2
+    | var t1 t2 Hfresh_dep Hv1 Hv2
     | tp1 tp2 Hv1 Hv2
     | tref Hv].
   - apply VBase.
@@ -5757,6 +5953,7 @@ Proof.
     assert (Hfresh2 : ~ List.In x (ty_vars t2)).
     { intro Hin. apply Hfresh. right. apply in_or_app. right. exact Hin. }
     eapply VFunDep.
+    + exact Hfresh_dep.
     + exact (IH C x t w _ Hfresh1 Hv1).
     + rewrite ctx_add_var_swap in Hv2 by congruence.
       exact (IH (ctx_add_var C var t1 (EVar var)) x t w _ Hfresh2 Hv2).
@@ -5818,7 +6015,7 @@ Proof.
     | var tb e Hv
     | var tb e c Hv Hent
     | t_dom t_dom' t_cod t_cod' Hs1 Hs2
-    | var t_dom t_dom' t_cod t_cod' Hs1 Hs2
+    | var t_dom t_dom' t_cod t_cod' Hfresh Hs1 Hs2
     | t1a t1b t2a t2b Hs1 Hs2
     | t_left t_right Hs1 Hs2].
   - apply SBase.
@@ -5857,6 +6054,7 @@ Proof.
     + exact (IH C _ _ Hs1).
     + exact (IH C _ _ Hs2).
   - eapply SFunDep.
+    + exact Hfresh.
     + exact (IH C _ _ Hs1).
     + destruct (String.eq_dec var x) as [-> | Hneq].
       * rewrite ctx_add_var_shadow in Hs2.
@@ -5958,6 +6156,7 @@ Proof.
       * apply entails_imp_refl.
   - apply SFun; assumption.
   - eapply SFunDep.
+    + exact H.
     + exact IHHvalid1.
     + exact IHHvalid2.
   - apply SPair; assumption.
@@ -5969,18 +6168,29 @@ Qed.
 Lemma inversion_fix :
   forall G f x t1 t2 body t,
     has_type G (EFix f x t1 t2 body) t ->
-    has_type G (EFix f x t1 t2 body) (TArrDep x t1 t2) /\
-    has_type
-      (ctx_add_var
-        (ctx_add_const G f (TArrDep x t1 t2) (EFix f x t1 t2 body))
-        x t1 (EVar x))
-      body t2.
+    (has_type G (EFix f x t1 t2 body) (TArrDep x t1 t2) /\
+     has_type
+       (ctx_add_var
+         (ctx_add_const G f (TArrDep x t1 t2) (EFix f x t1 t2 body))
+         x t1 (EVar x))
+       body t2) \/
+    (has_type G (EFix f x t1 t2 body) (TArr t1 t2) /\
+     has_type
+       (ctx_add_var
+         (ctx_add_const G f (TArr t1 t2) (EFix f x t1 t2 body))
+         x t1 (EVar x))
+       body t2).
 Proof.
   intros G f x t1 t2 body t Hty.
   remember (EFix f x t1 t2 body) as ef eqn:Heqef.
   revert f x t1 t2 body Heqef.
   induction Hty; intros f0 x0 t10 t20 body0 Heqef; inversion Heqef; subst; try discriminate.
-  - split.
+  - left.
+    split.
+    + eapply TFunDep; eauto.
+    + exact Hty.
+  - right.
+    split.
     + eapply TFun; eauto.
     + exact Hty.
   - exact (IHHty _ _ _ _ _ eq_refl).
@@ -6669,6 +6879,11 @@ Proof.
       exact (step_lemma_subtype_bool_singleton_forward G1 G2 e e' u (EVar u) C Hstep Hpure).
     + exact Hty.
 Qed.
+
+
+
+
+
 
 
 

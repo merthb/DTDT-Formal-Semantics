@@ -184,7 +184,7 @@ Inductive step : (ctx * i_expr) -> (ctx * i_expr) -> Prop :=
       value Γ v ->
       step
         (Γ, EApp (EConst c) v)
-        (Γ, e)
+        (Γ, EApp e v)
   | StepVar :
     forall Γ x τ v,
       Γ !!₁ x = Some (τ, v) ->

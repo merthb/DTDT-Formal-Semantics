@@ -2,6 +2,50 @@ Require Import DTDT.syntax.
 Require Import DTDT.entails_inter.
 Require Import DTDT.semantic_rules_inter.
 
+(* Free variables for surface expressions and types. *)
+Fixpoint free_exp_vars_surf (e : expr) : list string :=
+  match e with
+  | ExString _ => []
+  | ExBool _ => []
+  | ExNat _ => []
+  | ExUnit _ => []
+  | ExConst _ => []
+  | ExVar v => [v]
+  | ExLoc _ => []
+  | ExFix f x t1 t2 body =>
+      free_ty_vars_surf t1 ++ remove_string x (free_ty_vars_surf t2 ++ free_exp_vars_surf body)
+  | ExApp e1 e2 => free_exp_vars_surf e1 ++ free_exp_vars_surf e2
+  | ExPlus e1 e2 => free_exp_vars_surf e1 ++ free_exp_vars_surf e2
+  | ExPair e1 e2 => free_exp_vars_surf e1 ++ free_exp_vars_surf e2
+  | ExFst e0 => free_exp_vars_surf e0
+  | ExSnd e0 => free_exp_vars_surf e0
+  | ExIf e1 e2 e3 => free_exp_vars_surf e1 ++ free_exp_vars_surf e2 ++ free_exp_vars_surf e3
+  | ExNot e0 => free_exp_vars_surf e0
+  | ExAnd e1 e2 => free_exp_vars_surf e1 ++ free_exp_vars_surf e2
+  | ExOr e1 e2 => free_exp_vars_surf e1 ++ free_exp_vars_surf e2
+  | ExImp e1 e2 => free_exp_vars_surf e1 ++ free_exp_vars_surf e2
+  | ExEq e1 e2 => free_exp_vars_surf e1 ++ free_exp_vars_surf e2
+  | ExNewRef t e0 => free_ty_vars_surf t ++ free_exp_vars_surf e0
+  | ExGet e0 => free_exp_vars_surf e0
+  | ExSet e1 e2 => free_exp_vars_surf e1 ++ free_exp_vars_surf e2
+  | ExDeRef e0 => free_exp_vars_surf e0
+  | ExGetDep e0 => free_exp_vars_surf e0
+  | ExSetDep e1 e2 => free_exp_vars_surf e1 ++ free_exp_vars_surf e2
+  | EAssert e0 t => free_exp_vars_surf e0 ++ free_ty_vars_surf t
+  | ESimple e0 => free_exp_vars_surf e0
+  | EDep e0 => free_exp_vars_surf e0
+  end
+with free_ty_vars_surf (t : ty) : list string :=
+  match t with
+  | TyBase _ => []
+  | TySet x _ pred => remove_string x (free_exp_vars_surf pred)
+  | TyArr t1 t2 => free_ty_vars_surf t1 ++ free_ty_vars_surf t2
+  | TyArrDep x t1 t2 => free_ty_vars_surf t1 ++ remove_string x (free_ty_vars_surf t2)
+  | TyProd t1 t2 => free_ty_vars_surf t1 ++ free_ty_vars_surf t2
+  | TyRef t0 => free_ty_vars_surf t0
+  | TyDeRef t0 => free_ty_vars_surf t0
+  end.
+
 (* Pure typing for surface expressions. *)
 
 Fixpoint is_simple_type_surf (τ : ty) : bool :=
@@ -117,6 +161,7 @@ Inductive ty_valid_surf
       ty_valid_surf Γ (TyArr τ₁ τ₂)
   | VFunDepS :
     forall var t1 t2,
+      ~ List.In var (free_ty_vars_surf t1) ->
       ty_valid_surf Γ t1 ->
       ty_valid_surf (ctx_add_var_surf Γ var t1 (ExVar var)) t2 ->
       ty_valid_surf Γ (TyArrDep var t1 t2)
@@ -346,6 +391,7 @@ Inductive subtype_surf
       subtype_surf Γ (TyArr t1 t2) (TyArr t1' t2')
   | SFunDepS :
     forall var t1 t1p t2 t2p,
+      ~ List.In var (free_ty_vars_surf t1p) ->
       subtype_surf Γ t1p t1 ->
       subtype_surf (ctx_add_var_surf Γ var t1p (ExVar var)) t2 t2p ->
       subtype_surf Γ (TyArrDep var t1 t2) (TyArrDep var t1p t2p)

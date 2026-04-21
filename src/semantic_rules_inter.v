@@ -38,6 +38,48 @@ with ty_vars (τ : i_ty) : list string :=
   | TRef τ => ty_vars τ
   end.
 
+(* Remove one variable name from a free-variable list. *)
+Definition remove_string (x : string) (xs : list string) : list string :=
+  filter (fun y => negb (String.eqb x y)) xs.
+
+(* Free variables for internal expressions and types. *)
+Fixpoint free_exp_vars (e : i_expr) : list string :=
+  match e with
+  | EString _ => []
+  | EBool _ => []
+  | ENat _ => []
+  | EUnit _ => []
+  | EConst _ => []
+  | EVar v => [v]
+  | ELoc _ => []
+  | EFix f x t1 t2 body =>
+      free_ty_vars t1 ++ remove_string x (free_ty_vars t2 ++ free_exp_vars body)
+  | EApp e1 e2 => free_exp_vars e1 ++ free_exp_vars e2
+  | EPlus e1 e2 => free_exp_vars e1 ++ free_exp_vars e2
+  | EPair e1 e2 => free_exp_vars e1 ++ free_exp_vars e2
+  | EFst e0 => free_exp_vars e0
+  | ESnd e0 => free_exp_vars e0
+  | EIf e1 e2 e3 => free_exp_vars e1 ++ free_exp_vars e2 ++ free_exp_vars e3
+  | ENot e0 => free_exp_vars e0
+  | EAnd e1 e2 => free_exp_vars e1 ++ free_exp_vars e2
+  | EOr e1 e2 => free_exp_vars e1 ++ free_exp_vars e2
+  | EImp e1 e2 => free_exp_vars e1 ++ free_exp_vars e2
+  | EEq e1 e2 => free_exp_vars e1 ++ free_exp_vars e2
+  | ENewRef t e0 => free_ty_vars t ++ free_exp_vars e0
+  | EGet e0 => free_exp_vars e0
+  | ESet e1 e2 => free_exp_vars e1 ++ free_exp_vars e2
+  | EFail => []
+  end
+with free_ty_vars (t : i_ty) : list string :=
+  match t with
+  | TBase _ => []
+  | TSet x _ pred => remove_string x (free_exp_vars pred)
+  | TArr t1 t2 => free_ty_vars t1 ++ free_ty_vars t2
+  | TArrDep x t1 t2 => free_ty_vars t1 ++ remove_string x (free_ty_vars t2)
+  | TProd t1 t2 => free_ty_vars t1 ++ free_ty_vars t2
+  | TRef t0 => free_ty_vars t0
+  end.
+
 (* Pick a fresh variable name outside the given list. *)
 Definition fresh_string_list (l : list string) : string :=
   fresh_string_of_set ("x"%string) (list_to_set l).
@@ -193,6 +235,7 @@ Inductive ty_valid
       ty_valid Γ (TArr τ₁ τ₂)
   | VFunDep :
     forall var t1 t2,
+      ~ List.In var (free_ty_vars t1) ->
       ty_valid Γ t1 ->
       ty_valid (ctx_add_var Γ var t1 (EVar var)) t2 ->
       ty_valid Γ (TArrDep var t1 t2)
@@ -243,6 +286,7 @@ Inductive subtype
       subtype Γ (TArr τ₁ τ₂) (TArr τ₁' τ₂')
   | SFunDep :
     forall var t1 t1' t2 t2',
+      ~ List.In var (free_ty_vars t1') ->
       subtype Γ t1' t1 ->
       subtype (ctx_add_var Γ var t1' (EVar var)) t2 t2' ->
       subtype Γ (TArrDep var t1 t2) (TArrDep var t1' t2')
@@ -299,12 +343,17 @@ Inductive has_type
     forall τ,
       ty_valid Γ τ ->
       has_type Γ EFail τ
-  | TFun :
+  | TFunDep :
     forall f x τ₁ τ₂ e,
       ~ List.In x (ty_vars τ₁) ->
       ty_valid Γ (TArrDep x τ₁ τ₂) ->
       has_type ((Γ ,,c f ↦ (TArrDep x τ₁ τ₂, EFix f x τ₁ τ₂ e)) ,,v x ↦ (τ₁, EVar x)) e τ₂ ->
       has_type Γ (EFix f x τ₁ τ₂ e) (TArrDep x τ₁ τ₂)
+  | TFun :
+    forall f x τ₁ τ₂ e,
+      ty_valid Γ (TArr τ₁ τ₂) ->
+      has_type ((Γ ,,c f ↦ (TArr τ₁ τ₂, EFix f x τ₁ τ₂ e)) ,,v x ↦ (τ₁, EVar x)) e τ₂ ->
+      has_type Γ (EFix f x τ₁ τ₂ e) (TArr τ₁ τ₂)
   | TAppPure :
     forall e₁ e₂ x τ₁ τ₂,
       has_type Γ e₂ τ₁ ->
@@ -421,14 +470,14 @@ Definition const_step_well_typed (G : ctx) : Prop :=
     const_ctx_lookup G c = Some (t, e) ->
     value G v ->
     has_type G (EApp (EConst c) v) ttop ->
-    has_type G e ttop.
+    has_type G (EApp e v) ttop.
 
 Definition const_step_pure_well_typed (G : ctx) : Prop :=
   forall c t e v ty,
     const_ctx_lookup G c = Some (t, e) ->
     value G v ->
     has_type_pure G (EApp (EConst c) v) ty ->
-    has_type_pure G e ty.
+    has_type_pure G (EApp e v) ty.
 
 Inductive runtime_ctx_well_typed (G : ctx) : Prop :=
   | RuntimeCtxWellTyped :

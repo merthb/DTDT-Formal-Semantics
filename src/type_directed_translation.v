@@ -32,47 +32,6 @@ Definition pack_dref (τ : i_ty) (e : i_expr) : i_expr :=
 (* (implements the paper's `[[ ? ]] x` operation)                         *)
 (* ------------------------------------------------------------------------- *)
 
-(* Remove one variable name from a free-variable list. *)
-Definition remove_string (x : string) (xs : list string) : list string :=
-  filter (fun y => negb (String.eqb x y)) xs.
-
-(* Free variables for internal expressions and types. *)
-Fixpoint free_exp_vars (e : i_expr) : list string :=
-  match e with
-  | EString _ => []
-  | EBool _ => []
-  | ENat _ => []
-  | EUnit _ => []
-  | EConst _ => []
-  | EVar v => [v]
-  | ELoc _ => []
-  | EFix f x t1 t2 body =>
-      free_ty_vars t1 ++ remove_string x (free_ty_vars t2 ++ free_exp_vars body)
-  | EApp e1 e2 => free_exp_vars e1 ++ free_exp_vars e2
-  | EPlus e1 e2 => free_exp_vars e1 ++ free_exp_vars e2
-  | EPair e1 e2 => free_exp_vars e1 ++ free_exp_vars e2
-  | EFst e0 => free_exp_vars e0
-  | ESnd e0 => free_exp_vars e0
-  | EIf e1 e2 e3 => free_exp_vars e1 ++ free_exp_vars e2 ++ free_exp_vars e3
-  | ENot e0 => free_exp_vars e0
-  | EAnd e1 e2 => free_exp_vars e1 ++ free_exp_vars e2
-  | EOr e1 e2 => free_exp_vars e1 ++ free_exp_vars e2
-  | EImp e1 e2 => free_exp_vars e1 ++ free_exp_vars e2
-  | EEq e1 e2 => free_exp_vars e1 ++ free_exp_vars e2
-  | ENewRef t e0 => free_ty_vars t ++ free_exp_vars e0
-  | EGet e0 => free_exp_vars e0
-  | ESet e1 e2 => free_exp_vars e1 ++ free_exp_vars e2
-  | EFail => []
-  end
-with free_ty_vars (τ : i_ty) : list string :=
-  match τ with
-  | TBase _ => []
-  | TSet x _ pred => remove_string x (free_exp_vars pred)
-  | TArr t1 t2 => free_ty_vars t1 ++ free_ty_vars t2
-  | TArrDep x t1 t2 => free_ty_vars t1 ++ remove_string x (free_ty_vars t2)
-  | TProd t1 t2 => free_ty_vars t1 ++ free_ty_vars t2
-  | TRef t0 => free_ty_vars t0
-  end.
 
 (* Erase the dependency on a distinguished variable from an internal type. *)
 Fixpoint erase_dep_var (x : string) (τ : i_ty) : i_ty :=
@@ -81,7 +40,10 @@ Fixpoint erase_dep_var (x : string) (τ : i_ty) : i_ty :=
   | TSet y b pred => if String.eqb x y then TSet y b pred else
                       if existsb (String.eqb x) (free_exp_vars pred) then TBase b else TSet y b pred
   | TArr t1 t2 => TArr (erase_dep_var x t1) (erase_dep_var x t2)
-  | TArrDep y t1 t2 => TArr (erase_dep_var x t1) (erase_dep_var x t2)
+  | TArrDep y t1 t2 =>
+      if String.eqb x y
+      then TArr (erase_dep_var x t1) (erase_dep_var x t2)
+      else TArrDep y (erase_dep_var x t1) (erase_dep_var x t2)
   | TProd t1 t2 => TProd (erase_dep_var x t1) (erase_dep_var x t2)
   | TRef τ =>
       if existsb (String.eqb x) (free_ty_vars τ)
@@ -205,7 +167,7 @@ Inductive coerce (w : mode) (Γ : ctx) :
       coerce w (Γ ,,v x ↦ (τ₁', v₁))
         (EVar x) τ₁'
         eₓ       τ₁ ->
-      coerce w (((Γ ,,c y ↦ (TArrDep x τ₁ τ₂, v₁)) ,,v x ↦ (τ₁', v₂)))
+      coerce w (((Γ ,,c y ↦ (TArr τ₁ τ₂, v₁)) ,,v x ↦ (τ₁', v₂)))
         (EApp (EVar y) eₓ) τ₂
         eᵦ                 τ₂' ->
       coerce w Γ
@@ -217,7 +179,7 @@ Inductive coerce (w : mode) (Γ : ctx) :
       ~ subtype Γ τ₁' τ₁ ->
       τ₁ = TSet x τb e₁ ->
       τ₁' = TSet x τb e₁' \/ τ₁' = TBase τb ->
-      coerce w (((Γ ,,c y ↦ (TArr τ₁ τ₂, v₂)) ,,v x ↦ (τ₁', v₁)))
+      coerce w (((Γ ,,c y ↦ (TArrDep x τ₁ τ₂, v₂)) ,,v x ↦ (τ₁', v₁)))
         (EApp (EVar y) (EVar x)) τ₂
         eᵦ                       τ₂' ->
       eᵦ' = EIf e₁ eᵦ EFail ->
@@ -503,6 +465,7 @@ Inductive has_type_surf (w : mode) (Γ : ctx_surf) :
   | ATIfPure :
     forall e e₁ e₂ e₁' e₁'' e₂' e₂'' τ₁ τ₂ τ₃ u,
       has_type_pure_surf Γ e (TyBase BBool) ->
+      ~ List.In u (free_exp_vars_surf e₁ ++ free_exp_vars_surf e₂) ->
       has_type_surf w (Γ ,,sv u ↦ (TyBase BBool, e)) e₁ e₁' τ₁ ->
       has_type_surf w (Γ ,,sv u ↦ (TyBase BBool, ExNot e)) e₂ e₂' τ₂ ->
       coerce w ⟦ (Γ ,,sv u ↦ (TyBase BBool, e)) ⟧c
@@ -515,7 +478,7 @@ Inductive has_type_surf (w : mode) (Γ : ctx_surf) :
       has_type_surf w Γ (ExIf e e₁ e₂) (EIf (trans_expr_dref_free e) e₁'' e₂'') τ₃
   | ATIfImPure :
     forall e e₁ e₂ e' x τ,
-      ~ (forall τ', has_type_pure_surf Γ e τ') ->
+      ~ (exists tau0, has_type_pure_surf Γ e tau0) ->
       has_type_surf w Γ (expr_subst_surf x e (ExIf (ExVar x) e₁ e₂)) e' τ ->
       has_type_surf w Γ (ExIf e e₁ e₂) e' τ
   | ATAssert :
