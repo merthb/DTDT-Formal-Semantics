@@ -256,7 +256,7 @@ Proof.
   - destruct (String.eqb x s); simpl; try reflexivity.
     destruct (existsb (String.eqb x) (free_exp_vars i)); reflexivity.
   - rewrite IHtau1, IHtau2. reflexivity.
-  - destruct (String.eqb x s); simpl; rewrite IHtau1, IHtau2; reflexivity.
+  - destruct (String.eqb x s); simpl; rewrite ?IHtau1, ?IHtau2; reflexivity.
   - rewrite IHtau1, IHtau2. reflexivity.
   - destruct (existsb (String.eqb x) (free_ty_vars tau)); simpl; rewrite IHtau; reflexivity.
 Qed.
@@ -1091,4 +1091,5 @@ Proof.
   exact paper_theorem_8_translation_completeness.
 
 Qed.
+
 

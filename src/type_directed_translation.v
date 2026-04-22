@@ -42,7 +42,7 @@ Fixpoint erase_dep_var (x : string) (τ : i_ty) : i_ty :=
   | TArr t1 t2 => TArr (erase_dep_var x t1) (erase_dep_var x t2)
   | TArrDep y t1 t2 =>
       if String.eqb x y
-      then TArr (erase_dep_var x t1) (erase_dep_var x t2)
+      then TArrDep y (erase_dep_var x t1) t2
       else TArrDep y (erase_dep_var x t1) (erase_dep_var x t2)
   | TProd t1 t2 => TProd (erase_dep_var x t1) (erase_dep_var x t2)
   | TRef τ =>
@@ -507,3 +507,4 @@ Notation "Γ ⊢sim e ; e' : τ" := (has_type_surf sim Γ e e' τ)
   (at level 74, e, e', τ at next level).
 Notation "Γ ⊢dep e ; e' : τ" := (has_type_surf dep Γ e e' τ)
   (at level 74, e, e', τ at next level).
+
