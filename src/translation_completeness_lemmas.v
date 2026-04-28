@@ -71,6 +71,64 @@ Definition co_ref_consts_surf (Gamma : ctx_surf) : Prop :=
     const_ctx_lookup_surf Gamma c = Some (tau, v) ->
     co_ref tau = true.
 
+Lemma co_ref_vars_surf_add_var :
+  forall Gamma x tau v,
+    co_ref_vars_surf Gamma ->
+    co_ref tau = true ->
+    co_ref_vars_surf (ctx_add_var_surf Gamma x tau v).
+Proof.
+  intros Gamma x tau v Hco Htau y tau' v' Hlookup.
+  unfold var_ctx_lookup_surf, ctx_add_var_surf in Hlookup.
+  simpl in Hlookup.
+  apply lookup_insert_Some in Hlookup.
+  destruct Hlookup as [Hhit | Hmiss].
+  - destruct Hhit as [_ Hentry].
+    inversion Hentry; subst.
+    exact Htau.
+  - destruct Hmiss as [_ Hlookup_old].
+    exact (Hco y tau' v' Hlookup_old).
+Qed.
+
+Lemma co_ref_consts_surf_add_var :
+  forall Gamma x tau v,
+    co_ref_consts_surf Gamma ->
+    co_ref_consts_surf (ctx_add_var_surf Gamma x tau v).
+Proof.
+  intros Gamma x tau v Hco c tau' v' Hlookup.
+  unfold const_ctx_lookup_surf, ctx_add_var_surf in Hlookup.
+  simpl in Hlookup.
+  exact (Hco c tau' v' Hlookup).
+Qed.
+
+Lemma co_ref_consts_surf_add_const :
+  forall Gamma c tau v,
+    co_ref_consts_surf Gamma ->
+    co_ref tau = true ->
+    co_ref_consts_surf (ctx_add_const_surf Gamma c tau v).
+Proof.
+  intros Gamma c tau v Hco Htau d tau' v' Hlookup.
+  unfold const_ctx_lookup_surf, ctx_add_const_surf in Hlookup.
+  simpl in Hlookup.
+  apply lookup_insert_Some in Hlookup.
+  destruct Hlookup as [Hhit | Hmiss].
+  - destruct Hhit as [_ Hentry].
+    inversion Hentry; subst.
+    exact Htau.
+  - destruct Hmiss as [_ Hlookup_old].
+    exact (Hco d tau' v' Hlookup_old).
+Qed.
+
+Lemma co_ref_vars_surf_add_const :
+  forall Gamma c tau v,
+    co_ref_vars_surf Gamma ->
+    co_ref_vars_surf (ctx_add_const_surf Gamma c tau v).
+Proof.
+  intros Gamma c tau v Hco x tau' v' Hlookup.
+  unfold var_ctx_lookup_surf, ctx_add_const_surf in Hlookup.
+  simpl in Hlookup.
+  exact (Hco x tau' v' Hlookup).
+Qed.
+
 (* Appendix B.4 introduces a simple source-language type grammar
      tau ::= base | tau -> tau | tau x tau | tau dref
    together with the judgment Gamma |-0 e : tau.
@@ -204,10 +262,48 @@ Proof.
   exact (proj2 (simple_surface_type_co_ref_contra_ref tau Hsimple)).
 Qed.
 
+Lemma co_ref_fun_body_ctx :
+  forall Gamma f x tau1 tau2 vf vx,
+    co_ref_vars_surf Gamma ->
+    co_ref_consts_surf Gamma ->
+    simple_surface_type tau1 ->
+    simple_surface_type tau2 ->
+    co_ref_vars_surf
+      (ctx_add_var_surf
+        (ctx_add_const_surf Gamma f (TyArrDep x tau1 tau2) vf)
+        x tau1 vx) /\
+    co_ref_consts_surf
+      (ctx_add_var_surf
+        (ctx_add_const_surf Gamma f (TyArrDep x tau1 tau2) vf)
+        x tau1 vx).
+Proof.
+  intros Gamma f x tau1 tau2 vf vx Hvars Hconsts Hsimple1 Hsimple2.
+  split.
+  - apply co_ref_vars_surf_add_var.
+    + apply co_ref_vars_surf_add_const.
+      exact Hvars.
+    + exact (simple_surface_type_co_ref_true tau1 Hsimple1).
+  - apply co_ref_consts_surf_add_var.
+    apply co_ref_consts_surf_add_const.
+    + exact Hconsts.
+    + simpl.
+      rewrite (simple_surface_type_contra_ref_true tau1 Hsimple1).
+      exact (simple_surface_type_co_ref_true tau2 Hsimple2).
+Qed.
+
 Lemma simple_surface_type_trans_type_fixed :
   forall tau,
     simple_surface_type tau ->
     erase_i_ty (trans_type tau) = trans_type tau.
+Proof.
+  intros tau Hsimple.
+  induction Hsimple; simpl; try rewrite IHHsimple1; try rewrite IHHsimple2; try rewrite IHHsimple; reflexivity.
+Qed.
+
+Lemma simple_surface_type_trans_type_no_ty_vars :
+  forall tau,
+    simple_surface_type tau ->
+    ty_vars (trans_type tau) = [].
 Proof.
   intros tau Hsimple.
   induction Hsimple; simpl; try rewrite IHHsimple1; try rewrite IHHsimple2; try rewrite IHHsimple; reflexivity.
@@ -474,6 +570,214 @@ Proof.
   exact (has_type_simple_surf_simple Gamma e tau Hty).
 Qed.
 
+Lemma not_all_pure_trans_const_surf :
+  forall Gamma c tau v,
+    const_ctx_lookup_surf Gamma c = Some (tau, v) ->
+    ~ (forall tau_i, has_type_pure (trans_ctx_surf Gamma) (EConst c) tau_i).
+Proof.
+  intros Gamma c tau v Hlookup Hall.
+  pose proof (trans_ctx_surf_lookup_const Gamma c tau v Hlookup) as Hlookup_i.
+  destruct tau as [b | y b pred | t1 t2 | y t1 t2 | t1 t2 | tref | tdref].
+  - destruct b;
+    [ specialize (Hall (TBase BNat))
+    | specialize (Hall (TBase BNat))
+    | specialize (Hall (TBase BBool))
+    | specialize (Hall (TBase BNat)) ];
+    inversion Hall; subst;
+      match goal with
+      | Hc : const_ctx_lookup (trans_ctx_surf Gamma) c = Some ?entry |- _ =>
+          rewrite Hlookup_i in Hc; inversion Hc; subst; discriminate
+      end.
+  - specialize (Hall (TBase BNat)).
+    inversion Hall; subst;
+      match goal with
+      | Hc : const_ctx_lookup (trans_ctx_surf Gamma) c = Some ?entry |- _ =>
+          rewrite Hlookup_i in Hc; inversion Hc; subst; discriminate
+      end.
+  - specialize (Hall (TBase BNat)).
+    inversion Hall; subst;
+      match goal with
+      | Hc : const_ctx_lookup (trans_ctx_surf Gamma) c = Some ?entry |- _ =>
+          rewrite Hlookup_i in Hc; inversion Hc; subst; discriminate
+      end.
+  - specialize (Hall (TBase BNat)).
+    inversion Hall; subst;
+      match goal with
+      | Hc : const_ctx_lookup (trans_ctx_surf Gamma) c = Some ?entry |- _ =>
+          rewrite Hlookup_i in Hc; inversion Hc; subst; discriminate
+      end.
+  - specialize (Hall (TBase BNat)).
+    inversion Hall; subst;
+      match goal with
+      | Hc : const_ctx_lookup (trans_ctx_surf Gamma) c = Some ?entry |- _ =>
+          rewrite Hlookup_i in Hc; inversion Hc; subst; discriminate
+      end.
+  - specialize (Hall (TBase BNat)).
+    inversion Hall; subst;
+      match goal with
+      | Hc : const_ctx_lookup (trans_ctx_surf Gamma) c = Some ?entry |- _ =>
+          rewrite Hlookup_i in Hc; inversion Hc; subst; discriminate
+      end.
+  - specialize (Hall (TBase BNat)).
+    inversion Hall; subst;
+      match goal with
+      | Hc : const_ctx_lookup (trans_ctx_surf Gamma) c = Some ?entry |- _ =>
+          rewrite Hlookup_i in Hc; inversion Hc; subst; discriminate
+      end.
+Qed.
+
+Lemma not_all_pure_trans_var_surf :
+  forall Gamma x tau v,
+    var_ctx_lookup_surf Gamma x = Some (tau, v) ->
+    ~ (forall tau_i, has_type_pure (trans_ctx_surf Gamma) (EVar x) tau_i).
+Proof.
+  intros Gamma x tau v Hlookup Hall.
+  pose proof (trans_ctx_surf_lookup_var Gamma x tau v Hlookup) as Hlookup_i.
+  destruct tau as [b | y b pred | t1 t2 | y t1 t2 | t1 t2 | tref | tdref].
+  - destruct b;
+    [ specialize (Hall (TBase BNat))
+    | specialize (Hall (TBase BNat))
+    | specialize (Hall (TBase BBool))
+    | specialize (Hall (TBase BNat)) ];
+    inversion Hall; subst;
+      match goal with
+      | Hx : var_ctx_lookup (trans_ctx_surf Gamma) x = Some ?entry |- _ =>
+          rewrite Hlookup_i in Hx; inversion Hx; subst; simpl in *; try contradiction; discriminate
+      end.
+  - destruct b;
+    [ specialize (Hall (TBase BNat))
+    | specialize (Hall (TBase BNat))
+    | specialize (Hall (TBase BBool))
+    | specialize (Hall (TBase BNat)) ];
+    inversion Hall; subst;
+      match goal with
+      | Hx : var_ctx_lookup (trans_ctx_surf Gamma) x = Some ?entry |- _ =>
+          rewrite Hlookup_i in Hx; inversion Hx; subst; simpl in *; try contradiction; discriminate
+      end.
+  - specialize (Hall (TBase BNat)).
+    inversion Hall; subst;
+      match goal with
+      | Hx : var_ctx_lookup (trans_ctx_surf Gamma) x = Some ?entry |- _ =>
+          rewrite Hlookup_i in Hx; inversion Hx; subst; simpl in *; contradiction
+      end.
+  - specialize (Hall (TBase BNat)).
+    inversion Hall; subst;
+      match goal with
+      | Hx : var_ctx_lookup (trans_ctx_surf Gamma) x = Some ?entry |- _ =>
+          rewrite Hlookup_i in Hx; inversion Hx; subst; simpl in *; contradiction
+      end.
+  - specialize (Hall (TBase BNat)).
+    inversion Hall; subst;
+      match goal with
+      | Hx : var_ctx_lookup (trans_ctx_surf Gamma) x = Some ?entry |- _ =>
+          rewrite Hlookup_i in Hx; inversion Hx; subst; simpl in *; contradiction
+      end.
+  - specialize (Hall (TBase BNat)).
+    inversion Hall; subst;
+      match goal with
+      | Hx : var_ctx_lookup (trans_ctx_surf Gamma) x = Some ?entry |- _ =>
+          rewrite Hlookup_i in Hx; inversion Hx; subst; simpl in *; contradiction
+      end.
+  - specialize (Hall (TBase BNat)).
+    inversion Hall; subst;
+      match goal with
+      | Hx : var_ctx_lookup (trans_ctx_surf Gamma) x = Some ?entry |- _ =>
+          rewrite Hlookup_i in Hx; inversion Hx; subst; simpl in *; contradiction
+      end.
+Qed.
+
+Lemma simple_const_translation_exists :
+  forall Gamma c tau v,
+    const_ctx_lookup_surf Gamma c = Some (tau, v) ->
+    exists e' tau',
+      has_type_surf sim Gamma (ExConst c) e' tau'.
+Proof.
+  intros Gamma c tau v Hlookup.
+  exists (EConst c).
+  exists (trans_type tau).
+  eapply ATConst.
+  - exact Hlookup.
+  - exact (not_all_pure_trans_const_surf Gamma c tau v Hlookup).
+Qed.
+
+Lemma simple_var_translation_exists :
+  forall Gamma x tau v,
+    var_ctx_lookup_surf Gamma x = Some (tau, v) ->
+    exists e' tau',
+      has_type_surf sim Gamma (ExVar x) e' tau'.
+Proof.
+  intros Gamma x tau v Hlookup.
+  exists (EVar x).
+  exists (trans_type tau).
+  eapply ATVar.
+  - exact Hlookup.
+  - exact (not_all_pure_trans_var_surf Gamma x tau v Hlookup).
+Qed.
+
+Lemma simple_literal_translation_exists :
+  forall Gamma e tau,
+    has_type_simple_surf Gamma e tau ->
+    (exists n, e = ExNat n) \/
+    (exists b, e = ExBool b) \/
+    (exists s, e = ExString s) \/
+    (exists u, e = ExUnit u) ->
+    exists e' tau',
+      has_type_surf sim Gamma e e' tau'.
+Proof.
+  intros Gamma e tau Hsimple Hlit.
+  destruct Hlit as [Hnat | Hlit].
+  - destruct Hnat as [n Heq]. subst e.
+    exists (ENat n), (TBase BNat). apply ATNat.
+  - destruct Hlit as [Hbool | Hlit].
+    + destruct Hbool as [b Heq]. subst e.
+      exists (EBool b), (TBase BBool). apply ATBool.
+    + destruct Hlit as [Hstring | Hunit].
+      * destruct Hstring as [s Heq]. subst e.
+        exists (EString s), (TBase BString). apply ATString.
+      * destruct Hunit as [u Heq]. subst e.
+        exists (EUnit u), (TBase BUnit). apply ATUnit.
+Qed.
+
+Lemma simple_nat_translation_exists :
+  forall Gamma n,
+    exists e' tau',
+      has_type_surf sim Gamma (ExNat n) e' tau'.
+Proof.
+  intros Gamma n.
+  exists (ENat n), (TBase BNat).
+  apply ATNat.
+Qed.
+
+Lemma simple_bool_translation_exists :
+  forall Gamma b,
+    exists e' tau',
+      has_type_surf sim Gamma (ExBool b) e' tau'.
+Proof.
+  intros Gamma b.
+  exists (EBool b), (TBase BBool).
+  apply ATBool.
+Qed.
+
+Lemma simple_string_translation_exists :
+  forall Gamma s,
+    exists e' tau',
+      has_type_surf sim Gamma (ExString s) e' tau'.
+Proof.
+  intros Gamma s.
+  exists (EString s), (TBase BString).
+  apply ATString.
+Qed.
+
+Lemma simple_unit_translation_exists :
+  forall Gamma u,
+    exists e' tau',
+      has_type_surf sim Gamma (ExUnit u) e' tau'.
+Proof.
+  intros Gamma u.
+  exists (EUnit u), (TBase BUnit).
+  apply ATUnit.
+Qed.
+
 Lemma has_type_pure_surf_weaken_var_fresh :
   forall Gamma e tau y tauy vy,
     ~ List.In y (free_exp_vars_surf e) ->
@@ -563,6 +867,32 @@ Lemma ctx_add_var_surf_add_const_surf_comm :
 Proof.
   intros [vars consts] x tau e f tau' e'.
   reflexivity.
+Qed.
+
+Lemma ctx_add_const_surf_shadow :
+  forall Gamma f tau1 e1 tau2 e2,
+    ctx_add_const_surf (ctx_add_const_surf Gamma f tau1 e1) f tau2 e2 =
+    ctx_add_const_surf Gamma f tau2 e2.
+Proof.
+  intros [vars consts] f tau1 e1 tau2 e2.
+  unfold ctx_add_const_surf.
+  simpl.
+  f_equal.
+  apply insert_insert.
+Qed.
+
+Lemma ctx_add_const_surf_swap :
+  forall Gamma f tau1 e1 g tau2 e2,
+    f <> g ->
+    ctx_add_const_surf (ctx_add_const_surf Gamma f tau1 e1) g tau2 e2 =
+    ctx_add_const_surf (ctx_add_const_surf Gamma g tau2 e2) f tau1 e1.
+Proof.
+  intros [vars consts] f tau1 e1 g tau2 e2 Hneq.
+  unfold ctx_add_const_surf.
+  simpl.
+  f_equal.
+  apply insert_commute.
+  congruence.
 Qed.
 
 Lemma has_type_simple_surf_weaken_var_fresh :
@@ -935,6 +1265,15 @@ Proof.
       end.
     simpl in Hfun.
     inversion Hfun; subst.
+    reflexivity.
+  - match goal with
+    | Hs1 : has_type_simple_surf _ _ (TyArr _ _),
+      Hs2 : has_type_simple_surf _ _ _ |- _ =>
+        pose proof (IHHtr1 _ Hs1) as Hfun;
+        pose proof (IHHtr2 _ Hs2) as _
+      end.
+    simpl in Hfun.
+    inversion Hfun; subst.
     rewrite erase_i_ty_ty_subst.
     reflexivity.
   - match goal with
@@ -1000,53 +1339,11 @@ Proof.
     end.
 Qed.
 
-(* Internal-language helper retained from the previous development. This is not a
-
-   direct paper statement, but it records the inversion-style completeness shape
-
-   that the repo was already exploring using the internal typing judgment. *)
-
-Theorem internal_translation_completeness_helper :
-
-  forall Gamma e0 tau,
-
-    has_type (trans_ctx_surf Gamma) e0 [| trans_type tau |] ->
-
-    exists w e, has_type_surf w Gamma e e0 (trans_type tau).
-
-Admitted.
-
-
-
-(* Helper completeness statements for the reference fragment. These are useful
-
-   stepping stones, but they are not numbered paper results. *)
-
-Theorem completeness_of_reference_translation :
-  forall Gamma e' tau,
-    has_type (trans_ctx_surf Gamma) e' (TRef [| trans_type tau |]) ->
-    exists w e,
-      has_type_surf w Gamma e e' (TRef (trans_type tau)) \/
-      has_type_surf w Gamma e e' (trans_type tau).
-Admitted.
-
-Theorem completeness_of_dynamic_reference_translation :
-
-  forall Gamma e' tau,
-
-    has_type (trans_ctx_surf Gamma) e' [| dref_encoding (trans_type tau) |] ->
-
-    exists w e,
-
-      has_type_surf w Gamma e e' (trans_type (TyDeRef tau)).
-
-Proof.
-
-  intros Gamma e' tau Hty.
-
-  exact (internal_translation_completeness_helper Gamma e' (TyDeRef tau) Hty).
-
-Qed.
+(* The previous development kept an internal inversion-style completeness helper
+   here.  It was not a paper statement and was stronger than the translation can
+   justify: arbitrary typed internal terms, such as EFail at a valid type, need
+   not be images of surface terms.  The unused helper and its two unused wrapper
+   theorems were therefore retired rather than left as active admitted results. *)
 
 
 

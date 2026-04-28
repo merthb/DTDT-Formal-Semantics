@@ -1614,8 +1614,8 @@ Proof.
 Qed.
 
 (* ==================== PAPER THEOREM 4 ====================
-   Implementation-aligned preservation: stepping preserves typing together with
-   the store well-typedness invariant needed by the reference fragment. *)
+   Preservation is exposed below in the paper's ok-state form. The local
+   lemmas first establish the typing and store components separately. *)
 
 
 
@@ -1986,13 +1986,19 @@ Proof.
 Qed.
 
 (* Store updates do not affect entailments that arise in refinement subtyping:
-   predicates evaluated under a single refinement variable binding. *)
-Axiom entails_store_update_refinement :
+   predicates evaluated under a single refinement variable binding.  The
+   assumption itself lives in the entailment layer; type safety only needs this
+   validity-indexed wrapper. *)
+Lemma entails_store_update_refinement_valid :
   forall Γ x τ oldv newv var τb witness pred,
     Γ !!₃ x = Some (τ, oldv) ->
     ty_valid Γ (TSet var τb pred) ->
     entails (ctx_add_var Γ var (TBase τb) witness) pred ->
     entails (ctx_add_var (Γ ,,s x ↦ (τ, newv)) var (TBase τb) witness) pred.
+Proof.
+  intros Γ x τ oldv newv var τb witness pred Hlookup _ Hent.
+  exact (entails_store_update_refinement Γ x τ oldv newv var τb witness pred Hlookup Hent).
+Qed.
 
 Lemma has_type_pure_change_var_witness :
   forall Γ x τ witness_old witness_new e ty,
@@ -2066,7 +2072,7 @@ Proof.
     + apply ty_valid_store_update. exact H.
     + apply ty_valid_store_update. exact H0.
     + rewrite ctx_add_var_store_comm.
-      eapply (entails_store_update_refinement
+      eapply (entails_store_update_refinement_valid
           Γ x τ oldv newv var τb (make_expr τb c) (EImp e₁ e₂)).
         * exact Hlookup.
       * eapply (VSet Γ var τb (EImp e₁ e₂) (make_expr τb c)).
@@ -2078,7 +2084,7 @@ Proof.
   - eapply SBaseSet with (c := c).
     + apply ty_valid_store_update. exact H.
     + rewrite ctx_add_var_store_comm.
-      eapply (entails_store_update_refinement
+      eapply (entails_store_update_refinement_valid
           Γ x τ oldv newv var τb (make_expr τb c) e).
         * exact Hlookup.
       * exact H.
@@ -3328,7 +3334,7 @@ Proof.
   exact (preservation_right_store_typed_ctx Γ e Γ' e' τ Hstore Hty Hstep).
 Qed.
 
-Theorem preservation :
+Theorem preservation_typed_store :
   forall Γ e Γ' e' τ,
     runtime_ctx_well_typed Γ ->
     has_type Γ e τ ->
@@ -3339,6 +3345,37 @@ Proof.
   split.
   exact (preservation_left _ _ _ _ _ Hrt Htype Hstep).
   exact (preservation_right _ _ _ _ _ (runtime_ctx_well_typed_store _ Hrt) Htype Hstep).
+Qed.
+
+Definition no_var_bindings (G : ctx) : Prop :=
+  forall x, var_ctx_lookup G x = None.
+
+Definition no_const_bindings (G : ctx) : Prop :=
+  forall c, const_ctx_lookup G c = None.
+
+Definition state_ok (sigma : ctx * i_expr) : Prop :=
+  store_well_typed (fst sigma) /\
+  no_var_bindings (fst sigma) /\
+  no_const_bindings (fst sigma) /\
+  exists tau, has_type (fst sigma) (snd sigma) tau.
+
+Theorem preservation :
+  forall Γ e Γ' e',
+    state_ok (Γ, e) ->
+    step (Γ, e) (Γ', e') ->
+    state_ok (Γ', e').
+Proof.
+  intros Γ e Γ' e' Hok Hstep.
+  destruct Hok as [Hstore [HnoneVar [HnoneConst [tau Hty]]]].
+  split.
+  - exact (preservation_right _ _ _ _ _ Hstore Hty Hstep).
+  - split.
+    + exact (no_var_bindings_preserved_by_step (Γ, e) (Γ', e') Hstep HnoneVar).
+    + split.
+      * exact (no_const_bindings_preserved_by_step (Γ, e) (Γ', e') Hstep HnoneConst).
+      * exists tau.
+        pose proof (runtime_ctx_well_typed_from_invariants _ HnoneVar HnoneConst Hstore) as Hrt.
+        exact (preservation_left _ _ _ _ _ Hrt Hty Hstep).
 Qed.
 
 Lemma progress_pure_nobindings :
@@ -3774,9 +3811,35 @@ Proof.
 Qed.
 
 (* ==================== PAPER THEOREM 5 ====================
-   If ∅ ⊢ e : τ, then e is a value, e = fail, or there exists e' with e → e'. *)
+   If (M, e) is ok, then e is a value, e = fail, or there is a next step. *)
+
+Theorem progress_ok :
+  forall G e t,
+    store_well_typed G ->
+    no_var_bindings G ->
+    no_const_bindings G ->
+    has_type G e t ->
+    DTDT.machine_inter.value G e \/
+    e = EFail \/
+    exists G' e', step (G, e) (G', e').
+Proof.
+  intros G e t Hstore HnoneVar HnoneConst Hty.
+  exact (progress_store_typed_ctx_nobindings G e t Hstore HnoneVar HnoneConst Hty).
+Qed.
 
 Theorem progress :
+  forall Γ e,
+    state_ok (Γ, e) ->
+    DTDT.machine_inter.value Γ e \/
+    e = EFail \/
+    exists Γ' e', step (Γ, e) (Γ', e').
+Proof.
+  intros Γ e Hok.
+  destruct Hok as [Hstore [HnoneVar [HnoneConst [tau Hty]]]].
+  exact (progress_ok Γ e tau Hstore HnoneVar HnoneConst Hty).
+Qed.
+
+Lemma progress_empty :
   forall e tau,
     has_type empty_ctx e tau ->
     DTDT.machine_inter.value empty_ctx e \/

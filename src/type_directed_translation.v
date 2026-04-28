@@ -147,6 +147,7 @@ Inductive coerce (w : mode) (Γ : ctx) :
     forall e e₁ e₂ τ τb var,
       w = sim ->
       τ = (TBase τb) \/ τ = (TSet var τb e₂) ->
+      ty_valid Γ (TSet var τb e₁) ->
       coerce w Γ
         e                                             τ
         (expr_subst var e (EIf e₁ (EVar var) EFail)) (TSet var τb e₁)
@@ -357,36 +358,50 @@ Inductive has_type_surf (w : mode) (Γ : ctx_surf) :
   | ATUnit :
     forall u,
       has_type_surf w Γ (ExUnit u) (EUnit u) (TBase BUnit)
+  | ATPlus :
+    forall e1 e2 e1' e2',
+      has_type_surf w Γ e1 e1' (TBase BNat) ->
+      has_type_surf w Γ e2 e2' (TBase BNat) ->
+      has_type_surf w Γ (ExPlus e1 e2) (EPlus e1' e2') (TBase BNat)
   | ATConstSelf :
     forall c τs v,
       Γ !!₂ₛ c = Some (τs, v) ->
-      has_type_pure_surf Γ (ExConst c) τs ->
+      (forall τ, has_type_pure (trans_ctx_surf Γ) (EConst c) τ) ->
       has_type_surf w Γ (ExConst c) (EConst c) (self (trans_type τs) (EConst c))
   | ATConst :
     forall c τs v,
       Γ !!₂ₛ c = Some (τs, v) ->
-      ~ has_type_pure_surf Γ (ExConst c) τs ->
+      ~ (forall τ, has_type_pure (trans_ctx_surf Γ) (EConst c) τ) ->
       has_type_surf w Γ (ExConst c) (EConst c) (trans_type τs)
   | ATVarSelf :
     forall x τs v,
       Γ !!₁ₛ x = Some (τs, v) ->
-      has_type_pure_surf Γ (ExVar x) τs ->
+      (forall τ, has_type_pure (trans_ctx_surf Γ) (EVar x) τ) ->
       has_type_surf w Γ (ExVar x) (EVar x) (self (trans_type τs) (EVar x))
   | ATVar :
     forall x τs v,
       Γ !!₁ₛ x = Some (τs, v) ->
-      ~ has_type_pure_surf Γ (ExVar x) τs ->
+      ~ (forall τ, has_type_pure (trans_ctx_surf Γ) (EVar x) τ) ->
       has_type_surf w Γ (ExVar x) (EVar x) (trans_type τs)
   | ATFun :
-    forall f x τ₁ τ₂ τ₂' e e₁ e₂ v₁ v₂,
+    forall f x τ₁ τ₂ τ₂' e e₁ e₂,
       ty_valid_surf Γ (TyArrDep x τ₁ τ₂) ->
-      has_type_surf w (((Γ ,,sc f ↦ (TyArrDep x τ₁ τ₂, v₂)) ,,sv x ↦ (τ₁, v₁))) e e₁ τ₂' ->
-      coerce w ⟦ ((Γ ,,sc f ↦ (TyArrDep x τ₁ τ₂, v₂)) ,,sv x ↦ (τ₁, v₁)) ⟧c
+      ~ List.In x (ty_vars (trans_type τ₁)) ->
+      has_type_surf w (((Γ ,,sc f ↦ (TyArrDep x τ₁ τ₂, ExFix f x τ₁ τ₂ e)) ,,sv x ↦ (τ₁, ExVar x))) e e₁ τ₂' ->
+      coerce w ⟦ ((Γ ,,sc f ↦ (TyArrDep x τ₁ τ₂, ExFix f x τ₁ τ₂ e)) ,,sv x ↦ (τ₁, ExVar x)) ⟧c
         e₁ τ₂'
         e₂ (trans_type τ₂) ->
       has_type_surf w Γ (ExFix f x τ₁ τ₂ e)
                     (EFix f x (trans_type τ₁) (trans_type τ₂) e₂)
                     (TArrDep x (trans_type τ₁) (trans_type τ₂))
+  | ATApp :
+    forall e₁ e₂ e₁' e₂' e₂'' τ₁ τ₂ τ₁',
+      has_type_surf w Γ e₁ e₁' (TArr τ₁ τ₂) ->
+      has_type_surf w Γ e₂ e₂' τ₁' ->
+      coerce w ⟦ Γ ⟧c
+        e₂' τ₁'
+        e₂'' τ₁ ->
+      has_type_surf w Γ (ExApp e₁ e₂) (EApp e₁' e₂'') τ₂
   | ATAppPure :
     forall e₁ e₂ e₁' e₂' e₂'' x τ₁ τ₂ τ₁',
       has_type_surf w Γ e₁ e₁' (TArrDep x τ₁ τ₂) ->

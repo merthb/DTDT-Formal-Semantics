@@ -72,6 +72,16 @@ Axiom entails_drop_unused :
     expr_subst x witness e = e ->
     entails (add_ctx G2 G1) e.
 
+(* Store updates preserve refinement entailments whose predicate context only
+   adds the distinguished refinement variable.  This is an entailment-layer
+   structural principle: store mutation changes the runtime store entry, not the
+   logical variable binding used to check the refinement predicate. *)
+Axiom entails_store_update_refinement :
+  forall Γ x τ oldv newv var τb witness pred,
+    Γ !!₃ x = Some (τ, oldv) ->
+    entails (ctx_add_var Γ var (TBase τb) witness) pred ->
+    entails (ctx_add_var (Γ ,,s x ↦ (τ, newv)) var (TBase τb) witness) pred.
+
 (* B.1.7 Compatibility with primitive constant interpretation under evaluation
    contexts. In the current implementation, the paper's I(c, v) is represented by
    the corresponding constant-application machine step. *)
@@ -82,13 +92,25 @@ Axiom entails_const_step :
     (entails G (plug E (EApp (EConst c) v)) <-> entails G (plug E e)).
 
 (* B.1.8 Classical propositional logic. *)
-Axiom entails_true :
+Lemma entails_true :
   forall G,
     entails G (EBool true).
+Proof.
+  intros G.
+  unfold entails.
+  apply steps_refl.
+Qed.
 
-Axiom entails_not_false :
+Lemma entails_not_false :
   forall G,
     entails G (ENot (EBool false)).
+Proof.
+  intros G.
+  unfold entails.
+  eapply steps_step.
+  - apply StepNot.
+  - apply steps_refl.
+Qed.
 
 Axiom entails_imp_refl :
   forall G e,

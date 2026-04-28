@@ -818,7 +818,6 @@ Proof.
   - eapply SRef; eauto.
 Qed.
 
-
 Lemma subtype_preserves_essential_type :
   forall Γ τ' τ,
     subtype Γ τ' τ ->
@@ -3130,6 +3129,63 @@ Proof.
   eapply TSelf.
   - exact Hty.
   - exact HpureAll.
+Qed.
+
+Lemma subst_base_has_type_fun_simple_nonshadow_ctx_stable_from_substituted_premises :
+  forall C x e0 f y t1 t2 body,
+    y <> x ->
+    ty_valid (ctx_subst x e0 C) (ty_subst x e0 (TArr t1 t2)) ->
+    has_type
+      (ctx_subst x e0 (((C ,,c f ↦ (TArr t1 t2, EFix f y t1 t2 body)) ,,v y ↦ (t1, EVar y))))
+      (expr_subst x e0 body)
+      (ty_subst x e0 t2) ->
+    has_type
+      (ctx_subst x e0 C)
+      (expr_subst x e0 (EFix f y t1 t2 body))
+      (ty_subst x e0 (TArr t1 t2)).
+Proof.
+  intros C x e0 f y t1 t2 body Hneq Hvalid Hbody.
+  assert (Hneqbxy : (x =? y)%string = false) by (apply String.eqb_neq; congruence).
+  assert (Hneqbyx : (y =? x)%string = false).
+  { rewrite String.eqb_sym. exact Hneqbxy. }
+  simpl.
+  rewrite Hneqbyx.
+  rewrite ctx_subst_ctx_add_var in Hbody.
+  rewrite ctx_subst_ctx_add_const in Hbody.
+  simpl in Hbody.
+  rewrite Hneqbyx in Hbody.
+  rewrite Hneqbxy in Hbody.
+  eapply TFun.
+  - exact Hvalid.
+  - exact Hbody.
+Qed.
+
+Lemma subst_base_has_type_fun_simple_shadow_ctx_stable_from_substituted_premises :
+  forall C x e0 f t1 t2 body,
+    ty_subst x e0 t2 = t2 ->
+    ty_valid (ctx_subst x e0 C) (ty_subst x e0 (TArr t1 t2)) ->
+    has_type
+      (((ctx_subst x e0 C) ,,c f ↦ (ty_subst x e0 (TArr t1 t2), expr_subst x e0 (EFix f x t1 t2 body)))
+        ,,v x ↦ (ty_subst x e0 t1, EVar x))
+      body
+      t2 ->
+    has_type
+      (ctx_subst x e0 C)
+      (expr_subst x e0 (EFix f x t1 t2 body))
+      (ty_subst x e0 (TArr t1 t2)).
+Proof.
+  intros C x e0 f t1 t2 body Ht2 Hvalid Hbody.
+  simpl.
+  rewrite String.eqb_refl.
+  rewrite Ht2.
+  simpl in Hvalid.
+  rewrite Ht2 in Hvalid.
+  simpl in Hbody.
+  rewrite String.eqb_refl in Hbody.
+  rewrite Ht2 in Hbody.
+  eapply TFun.
+  - exact Hvalid.
+  - exact Hbody.
 Qed.
 
 (* Internal selfification transport used only by older local bridges.

@@ -221,6 +221,32 @@ Proof.
   exact Hty.
 Qed.
 
+Lemma trans_expr_dref_free_pure_sound :
+  forall (Gamma : ctx_surf) (e : expr) (tau : ty),
+    has_type_pure_surf Gamma e tau ->
+    has_type_pure (trans_ctx_surf Gamma) (trans_expr_dref_free e) (trans_type tau).
+Proof.
+  intros Gamma e tau Hpure.
+  unfold trans_expr_dref_free.
+  destruct (trans_expr_partial e) eqn:Hep.
+  - exact (trans_expr_partial_pure_sound Gamma e tau i Hep Hpure).
+  - exfalso.
+    destruct (trans_expr_partial_pure Gamma e tau Hpure) as [ep Hpair].
+    destruct Hpair as [Hep' _].
+    rewrite Hep in Hep'.
+    discriminate.
+Qed.
+
+Lemma pure_surface_translation_sound :
+  forall (Gamma : ctx_surf) (e : expr) (tau : ty),
+    has_type_pure_surf Gamma e tau ->
+    has_type (trans_ctx_surf Gamma) (trans_expr_dref_free e) (trans_type tau).
+Proof.
+  intros Gamma e tau Hpure.
+  apply has_type_pure_implies_has_type.
+  exact (trans_expr_dref_free_pure_sound Gamma e tau Hpure).
+Qed.
+
 Combined Scheme surface_expr_ty_ind from expr_ind_mut, ty_ind_mut.
 
 Lemma free_var_translation_subsets :
@@ -1599,20 +1625,173 @@ Proof.
   - simpl. rewrite IHsubtype1. reflexivity.
 Qed.
 
+Lemma soundness_of_dep_type_coercion :
+  forall (Gamma : ctx_surf) (e : i_expr) (tau : i_ty) (e' : i_expr) (tau' : i_ty),
+    coerce dep (trans_ctx_surf Gamma) e tau e' tau' ->
+    has_type (trans_ctx_surf Gamma) e tau ->
+    has_type (trans_ctx_surf Gamma) e' tau'.
+Proof.
+  intros Gamma e tau e' tau' Hco Hty.
+  inversion Hco; subst; try discriminate.
+  eapply TSub.
+  - exact Hty.
+  - exact H.
+Qed.
+
+(* The simple-mode coercion cases include the refinement-checking casts and the
+   higher-order reference encodings.  Those cases need the missing validity and
+   function-coercion side conditions tracked separately from the easy dep case. *)
+Axiom soundness_of_sim_type_coercion :
+  forall (Gamma : ctx_surf) (e : i_expr) (tau : i_ty) (e' : i_expr) (tau' : i_ty),
+    coerce sim (trans_ctx_surf Gamma) e tau e' tau' ->
+    has_type (trans_ctx_surf Gamma) e tau ->
+    has_type (trans_ctx_surf Gamma) e' tau'.
+
 (* Paper Theorem 6. *)
 Theorem soundness_of_type_coercion :
   forall (w : mode) (Gamma : ctx_surf) (e : i_expr) (tau : i_ty) (e' : i_expr) (tau' : i_ty),
     coerce w (trans_ctx_surf Gamma) e tau e' tau' ->
     has_type (trans_ctx_surf Gamma) e tau ->
     has_type (trans_ctx_surf Gamma) e' tau'.
-Admitted.
+Proof.
+  intros w Gamma e tau e' tau' Hco Hty.
+  destruct w.
+  - exact (soundness_of_sim_type_coercion Gamma e tau e' tau' Hco Hty).
+  - exact (soundness_of_dep_type_coercion Gamma e tau e' tau' Hco Hty).
+Qed.
 
 (* Paper Theorems 2 and 7. *)
+Axiom soundness_of_translation_fun_case :
+  forall (w : mode) (Gamma : ctx_surf) f x tau1 tau2 tau2' e e1 e2,
+    ty_valid_surf Gamma (TyArrDep x tau1 tau2) ->
+    ~ List.In x (ty_vars (trans_type tau1)) ->
+    has_type
+      (trans_ctx_surf
+        (ctx_add_var_surf
+          (ctx_add_const_surf Gamma f (TyArrDep x tau1 tau2) (ExFix f x tau1 tau2 e))
+          x tau1 (ExVar x)))
+      e1 tau2' ->
+    coerce w
+      (trans_ctx_surf
+        (ctx_add_var_surf
+          (ctx_add_const_surf Gamma f (TyArrDep x tau1 tau2) (ExFix f x tau1 tau2 e))
+          x tau1 (ExVar x)))
+      e1 tau2' e2 (trans_type tau2) ->
+    has_type (trans_ctx_surf Gamma)
+      (EFix f x (trans_type tau1) (trans_type tau2) e2)
+      (TArrDep x (trans_type tau1) (trans_type tau2)).
+
+Axiom soundness_of_translation_if_pure_case :
+  forall (w : mode) (Gamma : ctx_surf) e e1 e2 e1' e1'' e2' e2''
+    tau1 tau2 tau3 u,
+    has_type_pure_surf Gamma e (TyBase BBool) ->
+    ~ List.In u (free_exp_vars_surf e1 ++ free_exp_vars_surf e2) ->
+    has_type (trans_ctx_surf (ctx_add_var_surf Gamma u (TyBase BBool) e))
+      e1' tau1 ->
+    has_type (trans_ctx_surf (ctx_add_var_surf Gamma u (TyBase BBool) (ExNot e)))
+      e2' tau2 ->
+    coerce w (trans_ctx_surf (ctx_add_var_surf Gamma u (TyBase BBool) e))
+      e1' tau1 e1'' tau3 ->
+    coerce w (trans_ctx_surf (ctx_add_var_surf Gamma u (TyBase BBool) (ExNot e)))
+      e2' tau2 e2'' tau3 ->
+    ty_join (trans_ctx_surf Gamma) tau1 tau2 tau3 ->
+    has_type (trans_ctx_surf Gamma) (EIf (trans_expr_dref_free e) e1'' e2'') tau3.
+
 Theorem soundness_of_translation :
   forall (w : mode) (Gamma : ctx_surf) (e : expr) (e' : i_expr) (tau : i_ty),
     has_type_surf w Gamma e e' tau ->
     has_type (trans_ctx_surf Gamma) e' tau.
-Admitted.
+Proof.
+  intros w Gamma e e' tau Htr.
+  induction Htr.
+  - apply TNat.
+  - apply TBool.
+  - apply TString.
+  - apply TUnit.
+  - apply TPlus; assumption.
+  - eapply TSelf.
+    + eapply TConst. eapply trans_ctx_surf_lookup_const; eauto.
+    + exact H0.
+  - eapply TConst. eapply trans_ctx_surf_lookup_const; eauto.
+  - eapply TSelf.
+    + eapply TVar. eapply trans_ctx_surf_lookup_var; eauto.
+    + exact H0.
+  - eapply TVar. eapply trans_ctx_surf_lookup_var; eauto.
+  - eapply soundness_of_translation_fun_case; eauto.
+  - match goal with
+    | Hco : coerce w _ e₂' τ₁' e₂'' τ₁ |- _ =>
+        pose proof (soundness_of_type_coercion w _ e₂' τ₁' e₂'' τ₁ Hco IHHtr2) as Harg
+    end.
+    eapply TAppImPure.
+    + exact Harg.
+    + exact IHHtr1.
+  - match goal with
+    | Hco : coerce w _ e₂' τ₁' e₂'' τ₁ |- _ =>
+        pose proof (soundness_of_type_coercion w _ e₂' τ₁' e₂'' τ₁ Hco IHHtr2) as Harg
+    end.
+    eapply TAppPure.
+    + exact Harg.
+    + match goal with
+      | Hpure : forall tau, has_type_pure _ e₂'' tau |- _ => exact Hpure
+      end.
+    + exact IHHtr1.
+  - match goal with
+    | Hco_arg : coerce w _ e₂' τ₁' e₂'' τ₁,
+      Hco_fun : coerce w _ e₁' (TArrDep x τ₁ τ₂) e₁'' (TArr τ₁ ([[ τ₂ ]] x)) |- _ =>
+        pose proof (soundness_of_type_coercion w _ e₂' τ₁' e₂'' τ₁ Hco_arg IHHtr2) as Harg;
+        pose proof (soundness_of_type_coercion w _ e₁' (TArrDep x τ₁ τ₂) e₁'' (TArr τ₁ ([[ τ₂ ]] x)) Hco_fun IHHtr1) as Hfun
+    end.
+    eapply TAppImPure.
+    + exact Harg.
+    + exact Hfun.
+  - eapply TPair; eauto.
+  - eapply TFst; eauto.
+  - eapply TSnd; eauto.
+  - match goal with
+    | Hco : coerce w _ e' τ' e'' (trans_type τ) |- _ =>
+        pose proof (soundness_of_type_coercion w _ e' τ' e'' (trans_type τ) Hco IHHtr) as Hcoerced
+    end.
+    eapply TRefI.
+    + apply trans_type_preserves_validity.
+      match goal with
+      | Hvalid : ty_valid_surf _ (TyRef τ) |- _ => inversion Hvalid; subst; assumption
+      end.
+    + exact Hcoerced.
+  - eapply TGet; eauto.
+  - match goal with
+    | Hco : coerce w _ e2' τ' e2'' τ |- _ =>
+        pose proof (soundness_of_type_coercion w _ e2' τ' e2'' τ Hco IHHtr2) as Hcoerced
+    end.
+    eapply TSetI.
+    + exact IHHtr1.
+    + exact Hcoerced.
+  - match goal with
+    | Hco : coerce sim _ e₁ (TRef (trans_type τ)) e₂ (trans_type (TyDeRef τ)) |- _ =>
+        exact (soundness_of_type_coercion sim _ e₁ (TRef (trans_type τ)) e₂ (trans_type (TyDeRef τ)) Hco IHHtr)
+    end.
+  - unfold dget.
+    eapply TAppImPure.
+    + apply TUnit.
+    + eapply TFst. exact IHHtr.
+  - match goal with
+    | Hco : coerce w _ e2' τ' e2'' (trans_type τ) |- _ =>
+        pose proof (soundness_of_type_coercion w _ e2' τ' e2'' (trans_type τ) Hco IHHtr2) as Hcoerced
+    end.
+    unfold dset.
+    eapply TAppImPure.
+    + exact Hcoerced.
+    + eapply TSnd. exact IHHtr1.
+  - eapply soundness_of_translation_if_pure_case; eauto.
+  - exact IHHtr.
+  - subst w.
+    match goal with
+    | Hco : coerce sim _ e' τ' e'' (trans_type τ) |- _ =>
+        pose proof (soundness_of_type_coercion sim _ e' τ' e'' (trans_type τ) Hco IHHtr) as Hcoerced
+    end.
+    exact Hcoerced.
+  - subst w. exact IHHtr.
+  - subst w. exact IHHtr.
+Qed.
 
 Lemma soundness_of_reference_coercion :
   forall (w : mode) (Gamma : ctx_surf) (e : i_expr) (tau : i_ty) (e' : i_expr) (tau' : i_ty),
