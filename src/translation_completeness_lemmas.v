@@ -1,4 +1,5 @@
 Require Import Coq.Program.Equality.
+Require Import Coq.Logic.Classical.
 Require Import DTDT.syntax.
 Require Import DTDT.machine_inter.
 Require Import DTDT.semantic_rules_inter.
@@ -291,6 +292,50 @@ Proof.
       exact (simple_surface_type_co_ref_true tau2 Hsimple2).
 Qed.
 
+Lemma co_ref_fun_body_ctx_simple_arrow :
+  forall Gamma f x tau1 tau2 vf vx,
+    co_ref_vars_surf Gamma ->
+    co_ref_consts_surf Gamma ->
+    simple_surface_type tau1 ->
+    simple_surface_type tau2 ->
+    co_ref_vars_surf
+      (ctx_add_var_surf
+        (ctx_add_const_surf Gamma f (TyArr tau1 tau2) vf)
+        x tau1 vx) /\
+    co_ref_consts_surf
+      (ctx_add_var_surf
+        (ctx_add_const_surf Gamma f (TyArr tau1 tau2) vf)
+        x tau1 vx).
+Proof.
+  intros Gamma f x tau1 tau2 vf vx Hvars Hconsts Hsimple1 Hsimple2.
+  split.
+  - apply co_ref_vars_surf_add_var.
+    + apply co_ref_vars_surf_add_const.
+      exact Hvars.
+    + exact (simple_surface_type_co_ref_true tau1 Hsimple1).
+  - apply co_ref_consts_surf_add_var.
+    apply co_ref_consts_surf_add_const.
+    + exact Hconsts.
+    + simpl.
+      rewrite (simple_surface_type_contra_ref_true tau1 Hsimple1).
+      exact (simple_surface_type_co_ref_true tau2 Hsimple2).
+Qed.
+
+Lemma simple_surface_type_fun_dep_valid_surf :
+  forall Gamma x tau1 tau2,
+    simple_surface_type tau1 ->
+    simple_surface_type tau2 ->
+    ty_valid_surf Gamma (TyArrDep x tau1 tau2).
+Proof.
+  intros Gamma x tau1 tau2 Hsimple1 Hsimple2.
+  eapply VFunDepS.
+  - rewrite (simple_surface_type_no_free_ty_vars tau1 Hsimple1).
+    simpl. intros [].
+  - exact (simple_surface_type_valid_surf Gamma tau1 Hsimple1).
+  - exact (simple_surface_type_valid_surf
+      (ctx_add_var_surf Gamma x tau1 (ExVar x)) tau2 Hsimple2).
+Qed.
+
 Lemma simple_surface_type_trans_type_fixed :
   forall tau,
     simple_surface_type tau ->
@@ -307,6 +352,37 @@ Lemma simple_surface_type_trans_type_no_ty_vars :
 Proof.
   intros tau Hsimple.
   induction Hsimple; simpl; try rewrite IHHsimple1; try rewrite IHHsimple2; try rewrite IHHsimple; reflexivity.
+Qed.
+
+Lemma simple_fun_translation_from_dep_body :
+  forall Gamma f x tau1 tau2 e e1 tau2' e2,
+    simple_surface_type tau1 ->
+    simple_surface_type tau2 ->
+    has_type_surf sim
+      (ctx_add_var_surf
+        (ctx_add_const_surf Gamma f (TyArrDep x tau1 tau2)
+          (ExFix f x tau1 tau2 e))
+        x tau1 (ExVar x))
+      e e1 tau2' ->
+    coerce sim
+      (trans_ctx_surf
+        (ctx_add_var_surf
+          (ctx_add_const_surf Gamma f (TyArrDep x tau1 tau2)
+            (ExFix f x tau1 tau2 e))
+          x tau1 (ExVar x)))
+      e1 tau2' e2 (trans_type tau2) ->
+    has_type_surf sim Gamma
+      (ExFix f x tau1 tau2 e)
+      (EFix f x (trans_type tau1) (trans_type tau2) e2)
+      (TArrDep x (trans_type tau1) (trans_type tau2)).
+Proof.
+  intros Gamma f x tau1 tau2 e e1 tau2' e2 Hsimple1 Hsimple2 Hbody Hco.
+  eapply ATFun.
+  - exact (simple_surface_type_fun_dep_valid_surf Gamma x tau1 tau2 Hsimple1 Hsimple2).
+  - rewrite (simple_surface_type_trans_type_no_ty_vars tau1 Hsimple1).
+    simpl. intros [].
+  - exact Hbody.
+  - exact Hco.
 Qed.
 
 Lemma erase_i_ty_self_with :
@@ -693,11 +769,17 @@ Lemma simple_const_translation_exists :
       has_type_surf sim Gamma (ExConst c) e' tau'.
 Proof.
   intros Gamma c tau v Hlookup.
-  exists (EConst c).
-  exists (trans_type tau).
-  eapply ATConst.
-  - exact Hlookup.
-  - exact (not_all_pure_trans_const_surf Gamma c tau v Hlookup).
+  destruct (classic (has_type_pure (trans_ctx_surf Gamma) (EConst c) (essential_type (trans_type tau)))) as [Hpure | Hnpure].
+  - exists (EConst c).
+    exists (self (trans_type tau) (EConst c)).
+    eapply ATConstSelf.
+    + exact Hlookup.
+    + exact Hpure.
+  - exists (EConst c).
+    exists (trans_type tau).
+    eapply ATConst.
+    + exact Hlookup.
+    + exact Hnpure.
 Qed.
 
 Lemma simple_var_translation_exists :
@@ -707,11 +789,17 @@ Lemma simple_var_translation_exists :
       has_type_surf sim Gamma (ExVar x) e' tau'.
 Proof.
   intros Gamma x tau v Hlookup.
-  exists (EVar x).
-  exists (trans_type tau).
-  eapply ATVar.
-  - exact Hlookup.
-  - exact (not_all_pure_trans_var_surf Gamma x tau v Hlookup).
+  destruct (classic (has_type_pure (trans_ctx_surf Gamma) (EVar x) (essential_type (trans_type tau)))) as [Hpure | Hnpure].
+  - exists (EVar x).
+    exists (self (trans_type tau) (EVar x)).
+    eapply ATVarSelf.
+    + exact Hlookup.
+    + exact Hpure.
+  - exists (EVar x).
+    exists (trans_type tau).
+    eapply ATVar.
+    + exact Hlookup.
+    + exact Hnpure.
 Qed.
 
 Lemma simple_literal_translation_exists :

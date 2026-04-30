@@ -168,20 +168,17 @@ Proof.
   - simple eapply (@ATVar sim surf_impure_app_ctx "f"
       (TyArrDep "x" (TyBase BNat) (TyBase BNat)) surf_const_dep_fun_nat_expr).
     + unfold surf_impure_app_ctx, var_ctx_lookup_surf, ctx_add_var_surf. compute. reflexivity.
-    + intro H.
-      specialize (H (TBase BNat)).
+    + intros H.
       inversion H; subst.
       destruct τb; simpl in *; try contradiction; discriminate.
   - simple eapply (@ATGet sim surf_impure_app_ctx (ExVar "r") (EVar "r") (TBase BNat)).
     simple eapply (@ATVar sim surf_impure_app_ctx "r" (TyRef (TyBase BNat)) (ExVar "r")).
     + unfold surf_impure_app_ctx, var_ctx_lookup_surf, ctx_add_var_surf. compute. reflexivity.
-    + intro H.
-      specialize (H (TBase BNat)).
+    + intros H.
       inversion H; subst.
       destruct τb; simpl in *; try contradiction; discriminate.
   - apply CSub. apply SBase.
-  - intro Hpure.
-    specialize (Hpure (TBase BNat)).
+  - intros Hpure.
     inversion Hpure.
   - unfold erased_dep_fun_var_term.
     eapply CFunEraseDep with

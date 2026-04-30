@@ -357,7 +357,7 @@ Inductive has_type
   | TAppPure :
     forall e₁ e₂ x τ₁ τ₂,
       has_type Γ e₂ τ₁ ->
-      (forall τ₃, has_type_pure Γ e₂ τ₃) ->
+      has_type_pure Γ e₂ (essential_type τ₁) ->
       has_type Γ e₁ (TArrDep x τ₁ τ₂) ->
       has_type Γ (EApp e₁ e₂) (ty_subst x e₂ τ₂)
   | TAppImPure :
@@ -430,7 +430,7 @@ Inductive has_type
   | TSelf :
     forall e τ,
       has_type Γ e τ ->
-      (forall τ₁, has_type_pure Γ e τ₁) ->
+      has_type_pure Γ e (essential_type τ) ->
       has_type Γ e (self τ e)
   | TSub :
     forall e τ τ',
@@ -488,5 +488,3 @@ Inductive runtime_ctx_well_typed (G : ctx) : Prop :=
     const_step_pure_well_typed G ->
     store_well_typed G ->
     runtime_ctx_well_typed G.
-
-

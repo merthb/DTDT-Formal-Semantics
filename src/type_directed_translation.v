@@ -366,22 +366,22 @@ Inductive has_type_surf (w : mode) (Γ : ctx_surf) :
   | ATConstSelf :
     forall c τs v,
       Γ !!₂ₛ c = Some (τs, v) ->
-      (forall τ, has_type_pure (trans_ctx_surf Γ) (EConst c) τ) ->
+      has_type_pure (trans_ctx_surf Γ) (EConst c) (essential_type (trans_type τs)) ->
       has_type_surf w Γ (ExConst c) (EConst c) (self (trans_type τs) (EConst c))
   | ATConst :
     forall c τs v,
       Γ !!₂ₛ c = Some (τs, v) ->
-      ~ (forall τ, has_type_pure (trans_ctx_surf Γ) (EConst c) τ) ->
+      ~ has_type_pure (trans_ctx_surf Γ) (EConst c) (essential_type (trans_type τs)) ->
       has_type_surf w Γ (ExConst c) (EConst c) (trans_type τs)
   | ATVarSelf :
     forall x τs v,
       Γ !!₁ₛ x = Some (τs, v) ->
-      (forall τ, has_type_pure (trans_ctx_surf Γ) (EVar x) τ) ->
+      has_type_pure (trans_ctx_surf Γ) (EVar x) (essential_type (trans_type τs)) ->
       has_type_surf w Γ (ExVar x) (EVar x) (self (trans_type τs) (EVar x))
   | ATVar :
     forall x τs v,
       Γ !!₁ₛ x = Some (τs, v) ->
-      ~ (forall τ, has_type_pure (trans_ctx_surf Γ) (EVar x) τ) ->
+      ~ has_type_pure (trans_ctx_surf Γ) (EVar x) (essential_type (trans_type τs)) ->
       has_type_surf w Γ (ExVar x) (EVar x) (trans_type τs)
   | ATFun :
     forall f x τ₁ τ₂ τ₂' e e₁ e₂,
@@ -409,7 +409,7 @@ Inductive has_type_surf (w : mode) (Γ : ctx_surf) :
       coerce w ⟦ Γ ⟧c
         e₂' τ₁'
         e₂'' τ₁ ->
-      (forall τ, has_type_pure ⟦ Γ ⟧c e₂'' τ) ->
+      has_type_pure ⟦ Γ ⟧c e₂'' (essential_type τ₁) ->
       has_type_surf w Γ (ExApp e₁ e₂) (EApp e₁' e₂'') (ty_subst x e₂'' τ₂)
   | ATAppImPure :
     forall e₁ e₂ e₁' e₁'' e₂' e₂'' x τ₁ τ₂ τ₁',
@@ -418,7 +418,7 @@ Inductive has_type_surf (w : mode) (Γ : ctx_surf) :
       coerce w ⟦ Γ ⟧c
         e₂' τ₁'
         e₂'' τ₁ ->
-      ~ (forall τ, has_type_pure ⟦ Γ ⟧c e₂'' τ) ->
+      ~ has_type_pure ⟦ Γ ⟧c e₂'' (essential_type τ₁) ->
       coerce w ⟦ Γ ⟧c
         e₁' (TArrDep x τ₁ τ₂)
         e₁'' (TArr τ₁ ([[ τ₂ ]] x)) ->

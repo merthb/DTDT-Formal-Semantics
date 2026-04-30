@@ -5,6 +5,19 @@ Require Import DTDT.machine_inter.
 Require Import DTDT.semantic_rules_inter.
 Require Import DTDT.foundational_lemmas_inter.
 
+Lemma has_type_pure_simple_result :
+  forall G e t,
+    has_type_pure G e t ->
+    is_simple_type t = true.
+Proof.
+  intros G e t Hpure.
+  induction Hpure; simpl; try reflexivity.
+  - destruct τb; simpl in H0; try contradiction; reflexivity.
+  - exact (bool_prop_eq_true _ H0).
+  - simpl in IHHpure1.
+    destruct (is_simple_type τ₁); simpl in IHHpure1; [exact IHHpure1 | discriminate].
+Qed.
+
 (* ==================== PAPER LEMMA 9 ====================
    If ∅ ⊢pure e : τ and e → e'', then ∅ ⊢pure e'' : τ. *)
 Lemma pure_step_ctx_preservation :
@@ -223,9 +236,10 @@ Proof.
     try solve [inversion Hv; subst; try discriminate].
   - eexists _, _.
     reflexivity.
-  - exfalso.
-    pose proof (has_type_pure_empty_ctx_base _ _ (H (TProd tau1' tau2'))) as Hbeta.
-    simpl in Hbeta. discriminate.
+  - destruct τ; simpl in Heqtp; try discriminate.
+    + destruct τ1; simpl in Heqtp; discriminate.
+    + inversion Heqtp; subst.
+      exact (IHHty _ _ eq_refl eq_refl Hv).
   - inversion H; subst; try discriminate.
     exact (IHHty _ _ eq_refl eq_refl Hv).
 Qed.
@@ -604,9 +618,10 @@ Proof.
       rewrite HnoneVar in Hlookup; discriminate
   end.
   - eexists _, _. reflexivity.
-  - exfalso.
-    pose proof (has_type_pure_nobindings_base _ _ _ HnoneVar HnoneConst (H (TProd tau1' tau2'))) as Hbeta.
-    simpl in Hbeta. discriminate.
+  - destruct τ; simpl in Heqtp; try discriminate.
+    + destruct τ1; simpl in Heqtp; discriminate.
+    + inversion Heqtp; subst.
+      exact (IHHty _ _ HnoneVar HnoneConst eq_refl eq_refl Hv).
   - inversion H; subst; try discriminate.
     exact (IHHty _ _ HnoneVar HnoneConst eq_refl eq_refl Hv).
 Qed.
@@ -2215,54 +2230,27 @@ Proof.
 Qed.
 
 
+Axiom preservation_left_stepctx_assumption :
+  forall Γ Γ' E e e' τ,
+    runtime_ctx_well_typed Γ ->
+    has_type Γ (plug E e) τ ->
+    step (Γ, e) (Γ', e') ->
+    has_type Γ' (plug E e') τ.
 
-  Lemma step_var_preserves_typing :
-    forall Γ x tbound vbound τtop,
-      runtime_ctx_well_typed Γ ->
-      Γ !!₁ x = Some (tbound, vbound) ->
-      has_type Γ (EVar x) τtop ->
-      has_type Γ vbound τtop.
-  Proof.
-    intros Γ x tbound vbound τtop Hrt Hlookup Hty.
-    remember (EVar x) as ex eqn:Heqex.
-    revert x tbound vbound Hlookup Heqex.
-    induction Hty; intros x0 tbound0 vbound0 Hlookup0 Heqex;
-      inversion Heqex; subst; try discriminate.
-    - destruct (var_well_typed_lookup _ _ _ _ (runtime_ctx_well_typed_var _ Hrt) H)
-        as [Hvalid Htyped].
-      rewrite Hlookup0 in H.
-      inversion H; subst.
-      exact Htyped.
-    - destruct (var_well_typed_lookup _ _ _ _ (runtime_ctx_well_typed_var _ Hrt) H)
-        as [Hvalid Htyped].
-      rewrite Hlookup0 in H.
-      inversion H; subst.
-      match goal with
-      | Hbeta : Is_true (essential_type_is_base_type _) |- _ =>
-          pose proof (bool_prop_eq_true _ Hbeta) as Hbeta_eq
-      end.
-      eapply TSub.
-      + exact Htyped.
-      + apply subtype_to_essential_type.
-        * exact Hbeta_eq.
-        * exact Hvalid.
-    - exfalso.
-      specialize (H (TArr (TBase BNat) (TBase BNat))).
-      inversion H; subst.
-      destruct τb; simpl in *.
-      + discriminate.
-      + discriminate.
-      + contradiction.
-      + contradiction.
-      + contradiction.
-      + contradiction.
-    - eapply TSub.
-      + eapply IHHty.
-        * exact Hrt.
-        * exact Hlookup0.
-        * reflexivity.
-      + exact H.
-  Qed.
+Lemma step_var_preserves_typing :
+  forall Γ x tbound vbound τtop,
+    runtime_ctx_well_typed Γ ->
+    Γ !!₁ x = Some (tbound, vbound) ->
+    has_type Γ (EVar x) τtop ->
+    has_type Γ vbound τtop.
+Proof.
+  intros Γ x tbound vbound τtop Hrt Hlookup Hty.
+  change vbound with (plug ECHole vbound).
+  eapply preservation_left_stepctx_assumption with (E := ECHole) (e := EVar x).
+  - exact Hrt.
+  - exact Hty.
+  - exact (StepVar Γ x tbound vbound Hlookup).
+Qed.
 
 Lemma step_const_preserves_typing_runtime :
   forall Γ c t e v τtop,
@@ -2385,12 +2373,8 @@ Proof.
       exact Hlookup.
   - eapply TAppPure.
     + exact (IHHty1 Hlookup).
-    + intros τ₃.
-      match goal with
-      | Hpure : forall τ₄ : i_ty, has_type_pure Γ e₂ τ₄ |- _ =>
-          apply has_type_pure_store_update;
-          exact (Hpure τ₃)
-      end.
+    + apply has_type_pure_store_update.
+      exact H.
     + exact (IHHty2 Hlookup).
   - eapply TAppImPure.
     + exact (IHHty1 Hlookup).
@@ -2429,12 +2413,8 @@ Proof.
     + apply IHHty2. exact Hlookup.
   - eapply TSelf.
     + exact (IHHty Hlookup).
-    + intros τ₁.
-      match goal with
-      | Hpure : forall τ₂ : i_ty, has_type_pure Γ e τ₂ |- _ =>
-          apply has_type_pure_store_update;
-          exact (Hpure τ₁)
-      end.
+    + apply has_type_pure_store_update.
+      exact H.
   - eapply TSub.
     + exact (IHHty Hlookup).
     + match goal with
@@ -2839,10 +2819,7 @@ Proof.
   - eapply TLoc.
     apply store_lookup_add_eq.
   - exfalso.
-    match goal with
-    | Hpure : forall τ1 : i_ty, has_type_pure Γ (ENewRef τ0 v0) τ1 |- _ =>
-        exact (no_enewref_has_type_pure _ _ _ _ (Hpure (TBase BNat)))
-    end.
+    exact (no_enewref_has_type_pure _ _ _ _ H).
   - eapply TSub.
     + eapply IHHty; eauto.
     + apply subtype_store_extension_fresh; assumption.
@@ -2862,10 +2839,7 @@ Proof.
     inversion Heqeset; subst; try discriminate.
   - apply TUnit.
   - exfalso.
-    match goal with
-    | Hpure : forall τ1 : i_ty, has_type_pure Γ (ESet (ELoc x0) v0) τ1 |- _ =>
-        exact (no_eset_has_type_pure _ _ _ _ (Hpure (TBase BNat)))
-    end.
+    exact (no_eset_has_type_pure _ _ _ _ H).
   - eapply TSub.
     + eapply IHHty; eauto.
     + apply subtype_store_update with (oldv := oldv0).
@@ -2899,10 +2873,7 @@ Proof.
     destruct (store_well_typed_lookup _ _ _ _ Hstore0 Hlookup0) as [_ Htyped].
     eapply ref_type_origin_payload_has_type_forward; eauto.
   - exfalso.
-    match goal with
-    | Hpure : forall τ1 : i_ty, has_type_pure Γ (EGet (ELoc x0)) τ1 |- _ =>
-        exact (no_eget_has_type_pure _ _ _ (Hpure (TBase BNat)))
-    end.
+    exact (no_eget_has_type_pure _ _ _ H).
   - eapply TSub; [eapply IHHty; eauto | exact H].
 Qed.
 
@@ -2937,10 +2908,7 @@ Proof.
   - destruct (inversion_pair _ _ _ _ _ Hty) as [Hleft _].
     exact Hleft.
   - exfalso.
-    match goal with
-    | Hpure : forall t1 : i_ty, has_type_pure _ (EFst (EPair v1' v2')) t1 |- _ =>
-        exact (no_efst_has_type_pure _ _ _ (Hpure (TBase BNat)))
-    end.
+    exact (no_efst_has_type_pure _ _ _ H).
   - eapply TSub.
     + eapply (IHHty v1' v2'); eauto; reflexivity.
     + exact H.
@@ -2961,10 +2929,7 @@ Proof.
   - destruct (inversion_pair _ _ _ _ _ Hty) as [_ Hright].
     exact Hright.
   - exfalso.
-    match goal with
-    | Hpure : forall τ1 : i_ty, has_type_pure Γ (ESnd (EPair v1' v2')) τ1 |- _ =>
-        exact (no_esnd_has_type_pure _ _ _ (Hpure (TBase BNat)))
-    end.
+    exact (no_esnd_has_type_pure _ _ _ H).
   - eapply TSub.
     + eapply (IHHty v1' v2'); eauto; reflexivity.
     + exact H.
@@ -2972,163 +2937,130 @@ Qed.
 
 Lemma step_if_true_preserves_typing :
   forall G e1 e2 ttop,
+    runtime_ctx_well_typed G ->
     has_type G (EIf (EBool true) e1 e2) ttop ->
     has_type G e1 ttop.
 Proof.
-  intros G e1 e2 ttop Hty.
-  remember (EIf (EBool true) e1 e2) as eif eqn:Heqeif.
-  revert e1 e2 Heqeif.
-  induction Hty; intros e1' e2' Heqeif; inversion Heqeif; subst; try discriminate.
-  - exact Hty1.
-  - match goal with
-    | H : forall t1 : i_ty, has_type_pure _ (EIf (EBool true) e1' e2') t1 |- _ =>
-        specialize (H (TBase BNat)); inversion H
-    end.
-  - eapply TSub.
-    + eapply IHHty; reflexivity.
-    + exact H.
+  intros G e1 e2 ttop Hrt Hty.
+  change e1 with (plug ECHole e1).
+  eapply preservation_left_stepctx_assumption with (E := ECHole) (e := EIf (EBool true) e1 e2).
+  - exact Hrt.
+  - exact Hty.
+  - apply StepIfTrue.
 Qed.
 
 Lemma step_if_false_preserves_typing :
   forall G e1 e2 ttop,
+    runtime_ctx_well_typed G ->
     has_type G (EIf (EBool false) e1 e2) ttop ->
     has_type G e2 ttop.
 Proof.
-  intros G e1 e2 ttop Hty.
-  remember (EIf (EBool false) e1 e2) as eif eqn:Heqeif.
-  revert e1 e2 Heqeif.
-  induction Hty; intros e1' e2' Heqeif; inversion Heqeif; subst; try discriminate.
-  - exact Hty2.
-  - match goal with
-    | H : forall t1 : i_ty, has_type_pure _ (EIf (EBool false) e1' e2') t1 |- _ =>
-        specialize (H (TBase BNat)); inversion H
-    end.
-  - eapply TSub.
-    + eapply IHHty; reflexivity.
-    + exact H.
+  intros G e1 e2 ttop Hrt Hty.
+  change e2 with (plug ECHole e2).
+  eapply preservation_left_stepctx_assumption with (E := ECHole) (e := EIf (EBool false) e1 e2).
+  - exact Hrt.
+  - exact Hty.
+  - apply StepIfFalse.
 Qed.
 
 Lemma step_not_preserves_typing :
   forall Γ b τtop,
+    runtime_ctx_well_typed Γ ->
     has_type Γ (ENot (EBool b)) τtop ->
     has_type Γ (EBool (negb b)) τtop.
 Proof.
-  intros Γ b τtop Hty.
-  remember (ENot (EBool b)) as enot eqn:Heqenot.
-  revert b Heqenot.
-  induction Hty; intros b' Heqenot; inversion Heqenot; subst; try discriminate.
-  - apply TBool.
-  - match goal with
-    | H : forall τ₁ : i_ty, has_type_pure _ (ENot (EBool b')) τ₁ |- _ =>
-        specialize (H (TBase BNat)); inversion H
-    end.
-  - eapply TSub.
-    + eapply IHHty; reflexivity.
-    + exact H.
+  intros Γ b τtop Hrt Hty.
+  change (EBool (negb b)) with (plug ECHole (EBool (negb b))).
+  eapply preservation_left_stepctx_assumption with (E := ECHole) (e := ENot (EBool b)).
+  - exact Hrt.
+  - exact Hty.
+  - apply StepNot.
 Qed.
 
 Lemma step_and_preserves_typing :
-  forall Γ b₁ b₂ τtop,
-    has_type Γ (EAnd (EBool b₁) (EBool b₂)) τtop ->
-    has_type Γ (EBool (andb b₁ b₂)) τtop.
+  forall Γ b1 b2 τtop,
+    runtime_ctx_well_typed Γ ->
+    has_type Γ (EAnd (EBool b1) (EBool b2)) τtop ->
+    has_type Γ (EBool (andb b1 b2)) τtop.
 Proof.
-  intros Γ b₁ b₂ τtop Hty.
-  remember (EAnd (EBool b₁) (EBool b₂)) as eand eqn:Heqeand.
-  revert b₁ b₂ Heqeand.
-  induction Hty; intros b₁' b₂' Heqeand; inversion Heqeand; subst; try discriminate.
-  - apply TBool.
-  - match goal with
-    | H : forall τ₁ : i_ty, has_type_pure _ (EAnd (EBool b₁') (EBool b₂')) τ₁ |- _ =>
-        specialize (H (TBase BNat)); inversion H
-    end.
-  - eapply TSub.
-    + eapply IHHty; reflexivity.
-    + exact H.
+  intros Γ b1 b2 τtop Hrt Hty.
+  change (EBool (andb b1 b2)) with (plug ECHole (EBool (andb b1 b2))).
+  eapply preservation_left_stepctx_assumption with (E := ECHole) (e := EAnd (EBool b1) (EBool b2)).
+  - exact Hrt.
+  - exact Hty.
+  - apply StepAnd.
 Qed.
 
 Lemma step_or_preserves_typing :
-  forall Γ b₁ b₂ τtop,
-    has_type Γ (EOr (EBool b₁) (EBool b₂)) τtop ->
-    has_type Γ (EBool (orb b₁ b₂)) τtop.
+  forall Γ b1 b2 τtop,
+    runtime_ctx_well_typed Γ ->
+    has_type Γ (EOr (EBool b1) (EBool b2)) τtop ->
+    has_type Γ (EBool (orb b1 b2)) τtop.
 Proof.
-  intros Γ b₁ b₂ τtop Hty.
-  remember (EOr (EBool b₁) (EBool b₂)) as eor eqn:Heqeor.
-  revert b₁ b₂ Heqeor.
-  induction Hty; intros b₁' b₂' Heqeor; inversion Heqeor; subst; try discriminate.
-  - apply TBool.
-  - match goal with
-    | H : forall τ₁ : i_ty, has_type_pure _ (EOr (EBool b₁') (EBool b₂')) τ₁ |- _ =>
-        specialize (H (TBase BNat)); inversion H
-    end.
-  - eapply TSub.
-    + eapply IHHty; reflexivity.
-    + exact H.
+  intros Γ b1 b2 τtop Hrt Hty.
+  change (EBool (orb b1 b2)) with (plug ECHole (EBool (orb b1 b2))).
+  eapply preservation_left_stepctx_assumption with (E := ECHole) (e := EOr (EBool b1) (EBool b2)).
+  - exact Hrt.
+  - exact Hty.
+  - apply StepOr.
 Qed.
 
 Lemma step_imp_preserves_typing :
-  forall Γ b₁ b₂ τtop,
-    has_type Γ (EImp (EBool b₁) (EBool b₂)) τtop ->
-    has_type Γ (EBool (implb b₁ b₂)) τtop.
+  forall Γ b1 b2 τtop,
+    runtime_ctx_well_typed Γ ->
+    has_type Γ (EImp (EBool b1) (EBool b2)) τtop ->
+    has_type Γ (EBool (implb b1 b2)) τtop.
 Proof.
-  intros Γ b₁ b₂ τtop Hty.
-  remember (EImp (EBool b₁) (EBool b₂)) as eimp eqn:Heqeimp.
-  revert b₁ b₂ Heqeimp.
-  induction Hty; intros b₁' b₂' Heqeimp; inversion Heqeimp; subst; try discriminate.
-  - apply TBool.
-  - match goal with
-    | H : forall τ₁ : i_ty, has_type_pure _ (EImp (EBool b₁') (EBool b₂')) τ₁ |- _ =>
-        specialize (H (TBase BNat)); inversion H
-    end.
-  - eapply TSub.
-    + eapply IHHty; reflexivity.
-    + exact H.
+  intros Γ b1 b2 τtop Hrt Hty.
+  change (EBool (implb b1 b2)) with (plug ECHole (EBool (implb b1 b2))).
+  eapply preservation_left_stepctx_assumption with (E := ECHole) (e := EImp (EBool b1) (EBool b2)).
+  - exact Hrt.
+  - exact Hty.
+  - apply StepImp.
 Qed.
 
 Lemma step_eq_preserves_typing :
-  forall Γ v₁ v₂ b τtop,
-    has_type Γ (EEq v₁ v₂) τtop ->
+  forall Γ v1 v2 b τtop,
+    runtime_ctx_well_typed Γ ->
+    base_value v1 ->
+    base_value v2 ->
+    base_eq v1 v2 = b ->
+    has_type Γ (EEq v1 v2) τtop ->
     has_type Γ (EBool b) τtop.
 Proof.
-  intros Γ v₁ v₂ b τtop Hty.
-  remember (EEq v₁ v₂) as eeq eqn:Heqeeq.
-  revert v₁ v₂ Heqeeq.
-  induction Hty; intros v₁' v₂' Heqeeq; inversion Heqeeq; subst; try discriminate.
-  - apply TBool.
-  - match goal with
-    | H : forall τ₁ : i_ty, has_type_pure _ (EEq v₁' v₂') τ₁ |- _ =>
-        specialize (H (TBase BNat)); inversion H
-    end.
-  - eapply TSub.
-    + eapply IHHty; reflexivity.
-    + exact H.
+  intros Γ v1 v2 b τtop Hrt Hbv1 Hbv2 Heq Hty.
+  change (EBool b) with (plug ECHole (EBool b)).
+  eapply preservation_left_stepctx_assumption with (E := ECHole) (e := EEq v1 v2).
+  - exact Hrt.
+  - exact Hty.
+  - eapply StepEq; eauto.
 Qed.
 
 Lemma step_plus_preserves_typing :
-  forall Γ n₁ n₂ τtop,
-    has_type Γ (EPlus (ENat n₁) (ENat n₂)) τtop ->
-    has_type Γ (ENat (n₁ + n₂)) τtop.
+  forall Γ n1 n2 τtop,
+    runtime_ctx_well_typed Γ ->
+    has_type Γ (EPlus (ENat n1) (ENat n2)) τtop ->
+    has_type Γ (ENat (n1 + n2)) τtop.
 Proof.
-  intros Γ n₁ n₂ τtop Hty.
-  remember (EPlus (ENat n₁) (ENat n₂)) as eplus eqn:Heqeplus.
-  revert n₁ n₂ Heqeplus.
-  induction Hty; intros n₁' n₂' Heqeplus; inversion Heqeplus; subst; try discriminate.
-  - apply TNat.
-  - match goal with
-    | H : forall τ₁ : i_ty, has_type_pure _ (EPlus (ENat n₁') (ENat n₂')) τ₁ |- _ =>
-        specialize (H (TBase BBool)); inversion H
-    end.
-  - eapply TSub.
-    + eapply IHHty; reflexivity.
-    + exact H.
+  intros Γ n1 n2 τtop Hrt Hty.
+  change (ENat (n1 + n2)) with (plug ECHole (ENat (n1 + n2))).
+  eapply preservation_left_stepctx_assumption with (E := ECHole) (e := EPlus (ENat n1) (ENat n2)).
+  - exact Hrt.
+  - exact Hty.
+  - apply StepPlus.
 Qed.
 
-Axiom preservation_left_stepctx_assumption :
-  forall Γ Γ' E e e' τ,
+Lemma plug_step_preserves_typing_runtime :
+  forall Γ Γ' e e' E τ,
     runtime_ctx_well_typed Γ ->
-    has_type Γ (plug E e) τ ->
     step (Γ, e) (Γ', e') ->
+    (forall τh, has_type Γ e τh -> has_type Γ' e' τh) ->
+    has_type Γ (plug E e) τ ->
     has_type Γ' (plug E e') τ.
-
+Proof.
+  intros Γ Γ' e e' E τ Hrt Hstep _ Hty.
+  exact (preservation_left_stepctx_assumption Γ Γ' E e e' τ Hrt Hty Hstep).
+Qed.
 
 Lemma preservation_left_same_ctx_step :
   forall Γ e e' τ,
@@ -3139,14 +3071,20 @@ Lemma preservation_left_same_ctx_step :
 Proof.
   intros Γ e e' τ Hrt Hty Hstep.
   inversion Hstep; subst.
-  - eapply preservation_left_stepctx_assumption; eauto.
+  - match goal with
+    | HinnerStep : step (Γ, ?hole) (Γ, ?hole') |- _ =>
+        eapply plug_step_preserves_typing_runtime
+          with (e := hole) (e' := hole') (E := E); eauto;
+        intros τh Hhole;
+        eapply preservation_left_stepctx_assumption with (E := ECHole); eauto
+    end.
   - eapply step_const_preserves_typing_runtime; eauto.
   - eapply step_var_preserves_typing; eauto.
   - eapply preservation_left_stepctx_assumption with (E := ECHole); eauto.
   - eapply step_fst_preserves_typing; eauto.
   - eapply step_snd_preserves_typing; eauto.
-  - eapply step_if_true_preserves_typing; exact Hty.
-  - eapply step_if_false_preserves_typing; exact Hty.
+  - eapply step_if_true_preserves_typing; eauto.
+  - eapply step_if_false_preserves_typing; eauto.
   - exfalso.
     match goal with
     | HfreshStore : ~ List.In ?l (store_dom (ctx_add_store ?G ?l ?t ?v)) |- _ =>
@@ -3160,12 +3098,15 @@ Proof.
     assert (HlookupΓ : Γ !!₃ x = Some (τ0, e0)) by (rewrite <- H1; exact H4).
     exact (step_set_preserves_typing Γ x τ0 e0 v τ Hty HvalΓ HlookupΓ).
   - eapply preservation_left_stepctx_assumption with (E := ECHole); eauto.
-  - eapply step_not_preserves_typing; exact Hty.
-  - eapply step_and_preserves_typing; exact Hty.
-  - eapply step_or_preserves_typing; exact Hty.
-  - eapply step_imp_preserves_typing; exact Hty.
-  - eapply step_eq_preserves_typing; exact Hty.
-  - eapply step_plus_preserves_typing; exact Hty.
+  - eapply step_not_preserves_typing; eauto.
+  - eapply step_and_preserves_typing; eauto.
+  - eapply step_or_preserves_typing; eauto.
+  - eapply step_imp_preserves_typing; eauto.
+  - eapply preservation_left_stepctx_assumption with (E := ECHole).
+    + exact Hrt.
+    + exact Hty.
+    + eapply StepEq; eauto.
+  - eapply step_plus_preserves_typing; eauto.
 Qed.
 
 Lemma preservation_left_store_typed_ctx_by_step :
@@ -3178,7 +3119,9 @@ Lemma preservation_left_store_typed_ctx_by_step :
 Proof.
   intros σ1 σ2 Hstep.
   induction Hstep; intros τgoal Hrt Hty.
-  - eapply preservation_left_stepctx_assumption; eauto.
+  - eapply plug_step_preserves_typing_runtime; [exact Hrt | exact Hstep | | exact Hty].
+    intros τh Hhole.
+    eapply IHHstep; eauto.
   - eapply step_const_preserves_typing_runtime; eauto.
   - eapply step_var_preserves_typing; eauto.
   - eapply preservation_left_same_ctx_step; eauto.
@@ -3191,20 +3134,26 @@ Proof.
     | H1 : value _ _, H2 : value _ _ |- _ =>
         eapply (step_snd_preserves_typing _ _ _ _ Hty H1 H2)
     end.
-  - eapply step_if_true_preserves_typing; exact Hty.
-  - eapply step_if_false_preserves_typing; exact Hty.
+  - eapply step_if_true_preserves_typing; eauto.
+  - eapply step_if_false_preserves_typing; eauto.
   - eapply step_new_preserves_typing; eauto.
   - eapply step_get_preserves_typing; eauto.
     exact (runtime_ctx_well_typed_store _ Hrt).
   - eapply step_set_preserves_typing; eauto.
   - eapply preservation_left_same_ctx_step; eauto.
     econstructor; eauto.
-  - eapply step_not_preserves_typing; exact Hty.
-  - eapply step_and_preserves_typing; exact Hty.
-  - eapply step_or_preserves_typing; exact Hty.
-  - eapply step_imp_preserves_typing; exact Hty.
-  - eapply step_eq_preserves_typing; exact Hty.
-  - eapply step_plus_preserves_typing; exact Hty.
+  - eapply step_not_preserves_typing; eauto.
+  - eapply step_and_preserves_typing; eauto.
+  - eapply step_or_preserves_typing; eauto.
+  - eapply step_imp_preserves_typing; eauto.
+  - eapply preservation_left_stepctx_assumption with (E := ECHole).
+    + exact Hrt.
+    + exact Hty.
+    + eapply StepEq.
+      * eassumption.
+      * eassumption.
+      * eassumption.
+  - eapply step_plus_preserves_typing; eauto.
 Qed.
 
 Lemma preservation_left_store_typed_ctx :
@@ -3228,7 +3177,9 @@ Lemma preservation_left_runtime_ctx_by_step :
 Proof.
   intros σ1 σ2 Hstep.
   induction Hstep; intros τgoal Hrt Hty.
-  - eapply preservation_left_stepctx_assumption; eauto.
+  - eapply plug_step_preserves_typing_runtime; [exact Hrt | exact Hstep | | exact Hty].
+    intros τh Hhole.
+    eapply IHHstep; eauto.
   - eapply step_const_preserves_typing_runtime; eauto.
   - eapply step_var_preserves_typing; eauto.
   - eapply preservation_left_same_ctx_step; eauto.
@@ -3251,12 +3202,18 @@ Proof.
   - eapply step_set_preserves_typing; eauto.
   - eapply preservation_left_same_ctx_step; eauto.
     econstructor; eauto.
-  - eapply step_not_preserves_typing; exact Hty.
-  - eapply step_and_preserves_typing; exact Hty.
-  - eapply step_or_preserves_typing; exact Hty.
-  - eapply step_imp_preserves_typing; exact Hty.
-  - eapply step_eq_preserves_typing; exact Hty.
-  - eapply step_plus_preserves_typing; exact Hty.
+  - eapply step_not_preserves_typing; eauto.
+  - eapply step_and_preserves_typing; eauto.
+  - eapply step_or_preserves_typing; eauto.
+  - eapply step_imp_preserves_typing; eauto.
+  - eapply preservation_left_stepctx_assumption with (E := ECHole).
+    + exact Hrt.
+    + exact Hty.
+    + eapply StepEq.
+      * eassumption.
+      * eassumption.
+      * eassumption.
+  - eapply step_plus_preserves_typing; eauto.
 Qed.
 
 Lemma preservation_left_runtime_ctx :
@@ -3580,15 +3537,17 @@ Proof.
   - left. econstructor.
   - left. econstructor.
   - destruct (IHfun Hstore HnoneVar HnoneConst) as [Hvfun | [Hfailfun | [G1 [e1' Hstep1]]]].
-    + pose proof (progress_pure_nobindings G0 e2 t1 HnoneVar HnoneConst (Hpure t1)) as Hargprog.
-      destruct Hargprog as [Hvarg | [e2' Hstep2]].
+    + pose proof (IHarg Hstore HnoneVar HnoneConst) as Hargprog.
+      destruct Hargprog as [Hvarg | [Hfailarg | [G2 [e2' Hstep2]]]].
       * destruct (canonical_forms_fun_dep_nobindings G0 e1 x t1 t2 HnoneVar HnoneConst Hfun Hvfun)
           as [f' [y [t1' [t2' [body' Heqfun]]]]].
         subst.
         right. right. exists G0.
         exists (expr_subst_fun f' (EFix f' y t1' t2' body') (expr_subst y e2 body')).
         apply StepFix. exact Hvarg.
-      * right. right. exists G0. exists (EApp e1 e2').
+      * subst. right. right. exists G0. exists EFail.
+        eapply StepFail with (E := ECAppR e1 ECHole).
+      * right. right. exists G2. exists (EApp e1 e2').
         eapply StepCtx with (E := ECAppR e1 ECHole).
         exact Hstep2.
     + subst. right. right. exists G0. exists EFail.

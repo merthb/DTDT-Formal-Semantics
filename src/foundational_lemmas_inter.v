@@ -444,7 +444,8 @@ Proof.
       exact IHhas_type.
   - eapply TAppPure.
     + exact IHhas_type1.
-    + intros ty3. apply weakening_has_type_pure_right. exact (H0 ty3).
+    + apply weakening_has_type_pure_right.
+      exact H0.
     + exact IHhas_type2.
   - eapply TAppImPure.
     + exact IHhas_type1.
@@ -471,7 +472,8 @@ Proof.
     + exact IHhas_type2.
   - eapply TSelf.
     + exact IHhas_type.
-    + intros ty1. apply weakening_has_type_pure_right. exact (H0 ty1).
+    + apply weakening_has_type_pure_right.
+      exact H0.
   - eapply TSub.
     + exact IHhas_type.
     + apply weakening_subtype_right. exact H0.
@@ -1583,8 +1585,7 @@ Proof.
         reflexivity.
   - eapply TAppPure.
     + exact (IHHty1 C0 eq_refl).
-    + intros ty3.
-      exact (subsumption_has_type_pure_var_ctx (ctx_add_var C0 x t_new witness) C0 x t_old t_new witness _ ty3 (Hsub C0) (H ty3)).
+    + exact (subsumption_has_type_pure_var_ctx (ctx_add_var C0 x t_new witness) C0 x t_old t_new witness _ _ (Hsub C0) H).
     + exact (IHHty2 C0 eq_refl).
   - eapply TAppImPure.
     + exact (IHHty1 C0 eq_refl).
@@ -1627,8 +1628,7 @@ Proof.
     + exact (IHHty2 C0 eq_refl).
   - eapply TSelf.
     + exact (IHHty C0 eq_refl).
-    + intros ty1.
-      exact (subsumption_has_type_pure_var_ctx (ctx_add_var C0 x t_new witness) C0 x t_old t_new witness _ ty1 (Hsub C0) (H ty1)).
+    + exact (subsumption_has_type_pure_var_ctx (ctx_add_var C0 x t_new witness) C0 x t_old t_new witness _ _ (Hsub C0) H).
   - eapply TSub.
     + exact (IHHty C0 eq_refl).
     + exact (subsumption_subtype_var_ctx (ctx_add_var C0 x t_new witness) x t_old t_new witness (Hsub C0) C0 _ _ H).
@@ -2826,7 +2826,7 @@ Qed.
 Lemma subst_base_has_type_app_pure_ctx_stable_from_premises :
   forall C x e0 e1 e2 y t1 t2 t2',
     has_type (ctx_subst x e0 C) (expr_subst x e0 e2) (ty_subst x e0 t1) ->
-    (forall t3, has_type_pure (ctx_subst x e0 C) (expr_subst x e0 e2) t3) ->
+    has_type_pure (ctx_subst x e0 C) (expr_subst x e0 e2) (essential_type (ty_subst x e0 t1)) ->
     has_type (ctx_subst x e0 C) (expr_subst x e0 e1) (TArrDep y (ty_subst x e0 t1) t2') ->
     ty_subst x e0 (ty_subst y e2 t2) =
     ty_subst y (expr_subst x e0 e2) t2' ->
@@ -3121,14 +3121,14 @@ Lemma subst_base_has_type_self_ctx_stable_from_premises :
   forall C x e0 e t,
     ty_subst x e0 (self t e) = self (ty_subst x e0 t) (expr_subst x e0 e) ->
     has_type (ctx_subst x e0 C) (expr_subst x e0 e) (ty_subst x e0 t) ->
-    (forall t1, has_type_pure (ctx_subst x e0 C) (expr_subst x e0 e) t1) ->
+    has_type_pure (ctx_subst x e0 C) (expr_subst x e0 e) (essential_type (ty_subst x e0 t)) ->
     has_type (ctx_subst x e0 C) (expr_subst x e0 e) (ty_subst x e0 (self t e)).
 Proof.
-  intros C x e0 e t Hcomm Hty HpureAll.
+  intros C x e0 e t Hcomm Hty Hpure.
   rewrite Hcomm.
   eapply TSelf.
   - exact Hty.
-  - exact HpureAll.
+  - exact Hpure.
 Qed.
 
 Lemma subst_base_has_type_fun_simple_nonshadow_ctx_stable_from_substituted_premises :
@@ -3310,7 +3310,7 @@ Lemma subst_base_has_type_ctx_app_pure_hard :
     ty_subst x e0 t0 = t0 ->
     free_exp_vars e0 = [] ->
     has_type (ctx_add_var C x t0 e0) e2 t1 ->
-    (forall t3, has_type_pure (ctx_add_var C x t0 e0) e2 t3) ->
+    has_type_pure (ctx_add_var C x t0 e0) e2 (essential_type t1) ->
     has_type (ctx_add_var C x t0 e0) e1 (TArrDep y t1 t2) ->
     has_type (ctx_subst x e0 C) (expr_subst x e0 (EApp e1 e2)) (ty_subst x e0 (ty_subst y e2 t2)).
 Proof.
@@ -3331,10 +3331,10 @@ Lemma subst_base_has_type_ctx_self_hard :
     ty_subst x e0 t0 = t0 ->
     free_exp_vars e0 = [] ->
     has_type (ctx_add_var C x t0 e0) e t ->
-    (forall t1, has_type_pure (ctx_add_var C x t0 e0) e t1) ->
+    has_type_pure (ctx_add_var C x t0 e0) e (essential_type t) ->
     has_type (ctx_subst x e0 C) (expr_subst x e0 e) (ty_subst x e0 (self t e)).
 Proof.
-  intros C x e0 t0 e t Hctx Hv0 Hbeta0 Hpure0 Htyped0 Ht0 Hclosed Hty HpureAll.
+  intros C x e0 t0 e t Hctx Hv0 Hbeta0 Hpure0 Htyped0 Ht0 Hclosed Hty Hpure.
   assert (Hself : has_type (ctx_add_var C x t0 e0) e (self t e)).
   { eapply TSelf; eauto. }
   exact (has_type_subst_base_closed_pure_ctx C x e0 t0 e (self t e)
@@ -3615,23 +3615,19 @@ Qed.
 (* Paper Lemma 6, pure clause.
    Base substitution preserves pure typing. *)
 
-(* Transport lemma: if e has every pure type in the old context (ctx_add_var C xs t0 e0),
-   then the substituted expression (expr_subst xs e0 e) has every pure type in the
-   substituted context (ctx_subst xs e0 C).
-   Key insight: has_type_pure_ty_subst_closed shows that pure types are ty_subst-closed,
-   so subst_base_has_type_pure_gen followed by rewriting gives the exact type needed. *)
-Lemma has_type_pure_forall_ctx_stable :
+(* Transport a single pure typing witness through base substitution. *)
+Lemma has_type_pure_exists_ctx_stable :
   forall C xs e0 t0 e,
     essential_type_is_base_type t0 = true ->
     has_type_pure (ctx_subst xs e0 C) e0 (essential_type t0) ->
-    (forall τ, has_type_pure (ctx_add_var C xs t0 e0) e τ) ->
-    forall τ, has_type_pure (ctx_subst xs e0 C) (expr_subst xs e0 e) τ.
+    (exists tau, has_type_pure (ctx_add_var C xs t0 e0) e tau) ->
+    exists tau, has_type_pure (ctx_subst xs e0 C) (expr_subst xs e0 e) tau.
 Proof.
-  intros C xs e0 t0 e Hbeta Hpure0 Hforall τ.
-  pose proof (Hforall τ) as Hτ.
-  pose proof (has_type_pure_ty_subst_closed _ _ _ xs e0 Hτ) as Hclosed_τ.
-  pose proof (subst_base_has_type_pure_gen C xs e0 t0 e τ Hbeta Hpure0 Hτ) as Htransport.
-  rewrite Hclosed_τ in Htransport.
+  intros C xs e0 t0 e Hbeta Hpure0 [tau Htau].
+  exists tau.
+  pose proof (has_type_pure_ty_subst_closed _ _ _ xs e0 Htau) as Hclosed_tau.
+  pose proof (subst_base_has_type_pure_gen C xs e0 t0 e tau Hbeta Hpure0 Htau) as Htransport.
+  rewrite Hclosed_tau in Htransport.
   exact Htransport.
 Qed.
 
@@ -4763,7 +4759,7 @@ Qed.
    
    Paper: Implicit in substitution section via context hygiene.
    Coq requires: ctx_subst x e0 C = C for the proof to go through.
-   Status: Remains Admitted because it crosses the entailment axiom layer.
+   Status: Still open because it crosses the entailment axiom layer.
    Alternative: Use entails_subst_base_closed_pure_ctx_fixed (L2868) when C is stable.
    
    Why this axiom is sound:
@@ -6789,6 +6785,219 @@ Proof.
     rewrite String.eqb_refl in Hent.
     exact Hent.
 Qed.
+
+Lemma base_singleton_ty_valid_ctx :
+  forall C u t_active witness tb e,
+    has_type_pure empty_ctx e (TBase tb) ->
+    ty_valid (ctx_add_var C u t_active witness) (TSet u tb (EEq (EVar u) e)).
+Proof.
+  intros C u t_active witness tb e Hpure.
+  eapply VSet.
+  rewrite ctx_add_var_shadow.
+  eapply PEq.
+  - eapply (@PVar (ctx_add_var C u (TBase tb) (make_expr tb (match tb with
+      | BString => EmptyString
+      | BBool => true
+      | BNat => 0
+      | BUnit => tt
+      end))) u (TBase tb) (make_expr tb (match tb with
+      | BString => EmptyString
+      | BBool => true
+      | BNat => 0
+      | BUnit => tt
+      end))).
+    + unfold var_ctx_lookup, ctx_add_var.
+      simpl.
+      apply lookup_insert.
+    + simpl. destruct tb; exact I.
+  - pose proof (weakening_has_type_pure_right empty_ctx (ctx_add_var C u (TBase tb)
+      (make_expr tb (match tb with
+      | BString => EmptyString
+      | BBool => true
+      | BNat => 0
+      | BUnit => tt
+      end))) e (TBase tb) Hpure) as Hweak.
+    rewrite add_ctx_empty_l in Hweak.
+    exact Hweak.
+Qed.
+
+Lemma step_lemma_subtype_base_singleton_backward :
+  forall G1 G2 e e' u witness C tb,
+    step (add_ctx G2 G1, e) (add_ctx G2 G1, e') ->
+    has_type_pure empty_ctx e (TBase tb) ->
+    subtype
+      (ctx_add_var C u (TSet u tb (EEq (EVar u) e')) witness)
+      (TSet u tb (EEq (EVar u) e'))
+      (TSet u tb (EEq (EVar u) e)).
+Proof.
+  intros G1 G2 e e' u witness C tb Hstep Hpure.
+  destruct tb.
+  - eapply SSet with (c := EmptyString).
+    + apply base_singleton_ty_valid_ctx.
+      exact (preservation_pure_terms_sigma_foundational _ _ Hstep (TBase BString) Hpure).
+    + apply base_singleton_ty_valid_ctx. exact Hpure.
+    + rewrite ctx_add_var_shadow.
+      set (z := fresh_string_list [u]).
+      assert (Hz : z <> u) by (subst z; apply fresh_string_list_singleton_neq).
+      pose proof (pure_step_any_ctx_foundational (add_ctx G2 G1) (add_ctx G2 G1) e e'
+        (ctx_add_var C u (TBase BString) (EString EmptyString)) Hstep (TBase BString) Hpure) as Hstep'.
+      assert (Hent :
+        entails (ctx_add_var C u (TBase BString) (EString EmptyString))
+          (EImp (expr_subst z e' (EEq (EVar u) (EVar z)))
+                (expr_subst z e (EEq (EVar u) (EVar z))))).
+      { eapply step_lemma_entails_var_backward with (x := z) (t1 := TBase BString) (pred := EEq (EVar u) (EVar z)).
+        - exact Hstep'.
+        - exact Hpure.
+        - reflexivity.
+        - eapply PEq.
+          + eapply (@PVar (ctx_add_var (ctx_add_var C u (TBase BString) (EString EmptyString)) z (TBase BString) e) u (TBase BString) (EString EmptyString)).
+            * unfold var_ctx_lookup, ctx_add_var. apply lookup_insert_Some. right. split; [congruence | apply lookup_insert].
+            * simpl. exact I.
+          + eapply (@PVar (ctx_add_var (ctx_add_var C u (TBase BString) (EString EmptyString)) z (TBase BString) e) z (TBase BString) e).
+            * unfold var_ctx_lookup, ctx_add_var. simpl. apply lookup_insert.
+            * simpl. exact I. }
+      simpl in Hent. apply String.eqb_neq in Hz. rewrite Hz in Hent. rewrite String.eqb_refl in Hent. exact Hent.
+  - exact (step_lemma_subtype_bool_singleton_backward G1 G2 e e' u witness C Hstep Hpure).
+  - eapply SSet with (c := 0).
+    + apply base_singleton_ty_valid_ctx.
+      exact (preservation_pure_terms_sigma_foundational _ _ Hstep (TBase BNat) Hpure).
+    + apply base_singleton_ty_valid_ctx. exact Hpure.
+    + rewrite ctx_add_var_shadow.
+      set (z := fresh_string_list [u]).
+      assert (Hz : z <> u) by (subst z; apply fresh_string_list_singleton_neq).
+      pose proof (pure_step_any_ctx_foundational (add_ctx G2 G1) (add_ctx G2 G1) e e'
+        (ctx_add_var C u (TBase BNat) (ENat 0)) Hstep (TBase BNat) Hpure) as Hstep'.
+      assert (Hent :
+        entails (ctx_add_var C u (TBase BNat) (ENat 0))
+          (EImp (expr_subst z e' (EEq (EVar u) (EVar z)))
+                (expr_subst z e (EEq (EVar u) (EVar z))))).
+      { eapply step_lemma_entails_var_backward with (x := z) (t1 := TBase BNat) (pred := EEq (EVar u) (EVar z)).
+        - exact Hstep'.
+        - exact Hpure.
+        - reflexivity.
+        - eapply PEq.
+          + eapply (@PVar (ctx_add_var (ctx_add_var C u (TBase BNat) (ENat 0)) z (TBase BNat) e) u (TBase BNat) (ENat 0)).
+            * unfold var_ctx_lookup, ctx_add_var. apply lookup_insert_Some. right. split; [congruence | apply lookup_insert].
+            * simpl. exact I.
+          + eapply (@PVar (ctx_add_var (ctx_add_var C u (TBase BNat) (ENat 0)) z (TBase BNat) e) z (TBase BNat) e).
+            * unfold var_ctx_lookup, ctx_add_var. simpl. apply lookup_insert.
+            * simpl. exact I. }
+      simpl in Hent. apply String.eqb_neq in Hz. rewrite Hz in Hent. rewrite String.eqb_refl in Hent. exact Hent.
+  - eapply SSet with (c := tt).
+    + apply base_singleton_ty_valid_ctx.
+      exact (preservation_pure_terms_sigma_foundational _ _ Hstep (TBase BUnit) Hpure).
+    + apply base_singleton_ty_valid_ctx. exact Hpure.
+    + rewrite ctx_add_var_shadow.
+      set (z := fresh_string_list [u]).
+      assert (Hz : z <> u) by (subst z; apply fresh_string_list_singleton_neq).
+      pose proof (pure_step_any_ctx_foundational (add_ctx G2 G1) (add_ctx G2 G1) e e'
+        (ctx_add_var C u (TBase BUnit) (EUnit tt)) Hstep (TBase BUnit) Hpure) as Hstep'.
+      assert (Hent :
+        entails (ctx_add_var C u (TBase BUnit) (EUnit tt))
+          (EImp (expr_subst z e' (EEq (EVar u) (EVar z)))
+                (expr_subst z e (EEq (EVar u) (EVar z))))).
+      { eapply step_lemma_entails_var_backward with (x := z) (t1 := TBase BUnit) (pred := EEq (EVar u) (EVar z)).
+        - exact Hstep'.
+        - exact Hpure.
+        - reflexivity.
+        - eapply PEq.
+          + eapply (@PVar (ctx_add_var (ctx_add_var C u (TBase BUnit) (EUnit tt)) z (TBase BUnit) e) u (TBase BUnit) (EUnit tt)).
+            * unfold var_ctx_lookup, ctx_add_var. apply lookup_insert_Some. right. split; [congruence | apply lookup_insert].
+            * simpl. exact I.
+          + eapply (@PVar (ctx_add_var (ctx_add_var C u (TBase BUnit) (EUnit tt)) z (TBase BUnit) e) z (TBase BUnit) e).
+            * unfold var_ctx_lookup, ctx_add_var. simpl. apply lookup_insert.
+            * simpl. exact I. }
+      simpl in Hent. apply String.eqb_neq in Hz. rewrite Hz in Hent. rewrite String.eqb_refl in Hent. exact Hent.
+Qed.
+
+Lemma step_lemma_subtype_base_singleton_forward :
+  forall G1 G2 e e' u witness C tb,
+    step (add_ctx G2 G1, e) (add_ctx G2 G1, e') ->
+    has_type_pure empty_ctx e (TBase tb) ->
+    subtype
+      (ctx_add_var C u (TSet u tb (EEq (EVar u) e)) witness)
+      (TSet u tb (EEq (EVar u) e))
+      (TSet u tb (EEq (EVar u) e')).
+Proof.
+  intros G1 G2 e e' u witness C tb Hstep Hpure.
+  destruct tb.
+  - eapply SSet with (c := EmptyString).
+    + apply base_singleton_ty_valid_ctx. exact Hpure.
+    + apply base_singleton_ty_valid_ctx.
+      exact (preservation_pure_terms_sigma_foundational _ _ Hstep (TBase BString) Hpure).
+    + rewrite ctx_add_var_shadow.
+      set (z := fresh_string_list [u]).
+      assert (Hz : z <> u) by (subst z; apply fresh_string_list_singleton_neq).
+      pose proof (pure_step_any_ctx_foundational (add_ctx G2 G1) (add_ctx G2 G1) e e'
+        (ctx_add_var C u (TBase BString) (EString EmptyString)) Hstep (TBase BString) Hpure) as Hstep'.
+      assert (Hent :
+        entails (ctx_add_var C u (TBase BString) (EString EmptyString))
+          (EImp (expr_subst z e (EEq (EVar u) (EVar z)))
+                (expr_subst z e' (EEq (EVar u) (EVar z))))).
+      { eapply step_lemma_entails_var_forward with (x := z) (t1 := TBase BString) (pred := EEq (EVar u) (EVar z)).
+        - exact Hstep'.
+        - exact Hpure.
+        - reflexivity.
+        - eapply PEq.
+          + eapply (@PVar (ctx_add_var (ctx_add_var C u (TBase BString) (EString EmptyString)) z (TBase BString) e) u (TBase BString) (EString EmptyString)).
+            * unfold var_ctx_lookup, ctx_add_var. apply lookup_insert_Some. right. split; [congruence | apply lookup_insert].
+            * simpl. exact I.
+          + eapply (@PVar (ctx_add_var (ctx_add_var C u (TBase BString) (EString EmptyString)) z (TBase BString) e) z (TBase BString) e).
+            * unfold var_ctx_lookup, ctx_add_var. simpl. apply lookup_insert.
+            * simpl. exact I. }
+      simpl in Hent. apply String.eqb_neq in Hz. rewrite Hz in Hent. rewrite String.eqb_refl in Hent. exact Hent.
+  - exact (step_lemma_subtype_bool_singleton_forward G1 G2 e e' u witness C Hstep Hpure).
+  - eapply SSet with (c := 0).
+    + apply base_singleton_ty_valid_ctx. exact Hpure.
+    + apply base_singleton_ty_valid_ctx.
+      exact (preservation_pure_terms_sigma_foundational _ _ Hstep (TBase BNat) Hpure).
+    + rewrite ctx_add_var_shadow.
+      set (z := fresh_string_list [u]).
+      assert (Hz : z <> u) by (subst z; apply fresh_string_list_singleton_neq).
+      pose proof (pure_step_any_ctx_foundational (add_ctx G2 G1) (add_ctx G2 G1) e e'
+        (ctx_add_var C u (TBase BNat) (ENat 0)) Hstep (TBase BNat) Hpure) as Hstep'.
+      assert (Hent :
+        entails (ctx_add_var C u (TBase BNat) (ENat 0))
+          (EImp (expr_subst z e (EEq (EVar u) (EVar z)))
+                (expr_subst z e' (EEq (EVar u) (EVar z))))).
+      { eapply step_lemma_entails_var_forward with (x := z) (t1 := TBase BNat) (pred := EEq (EVar u) (EVar z)).
+        - exact Hstep'.
+        - exact Hpure.
+        - reflexivity.
+        - eapply PEq.
+          + eapply (@PVar (ctx_add_var (ctx_add_var C u (TBase BNat) (ENat 0)) z (TBase BNat) e) u (TBase BNat) (ENat 0)).
+            * unfold var_ctx_lookup, ctx_add_var. apply lookup_insert_Some. right. split; [congruence | apply lookup_insert].
+            * simpl. exact I.
+          + eapply (@PVar (ctx_add_var (ctx_add_var C u (TBase BNat) (ENat 0)) z (TBase BNat) e) z (TBase BNat) e).
+            * unfold var_ctx_lookup, ctx_add_var. simpl. apply lookup_insert.
+            * simpl. exact I. }
+      simpl in Hent. apply String.eqb_neq in Hz. rewrite Hz in Hent. rewrite String.eqb_refl in Hent. exact Hent.
+  - eapply SSet with (c := tt).
+    + apply base_singleton_ty_valid_ctx. exact Hpure.
+    + apply base_singleton_ty_valid_ctx.
+      exact (preservation_pure_terms_sigma_foundational _ _ Hstep (TBase BUnit) Hpure).
+    + rewrite ctx_add_var_shadow.
+      set (z := fresh_string_list [u]).
+      assert (Hz : z <> u) by (subst z; apply fresh_string_list_singleton_neq).
+      pose proof (pure_step_any_ctx_foundational (add_ctx G2 G1) (add_ctx G2 G1) e e'
+        (ctx_add_var C u (TBase BUnit) (EUnit tt)) Hstep (TBase BUnit) Hpure) as Hstep'.
+      assert (Hent :
+        entails (ctx_add_var C u (TBase BUnit) (EUnit tt))
+          (EImp (expr_subst z e (EEq (EVar u) (EVar z)))
+                (expr_subst z e' (EEq (EVar u) (EVar z))))).
+      { eapply step_lemma_entails_var_forward with (x := z) (t1 := TBase BUnit) (pred := EEq (EVar u) (EVar z)).
+        - exact Hstep'.
+        - exact Hpure.
+        - reflexivity.
+        - eapply PEq.
+          + eapply (@PVar (ctx_add_var (ctx_add_var C u (TBase BUnit) (EUnit tt)) z (TBase BUnit) e) u (TBase BUnit) (EUnit tt)).
+            * unfold var_ctx_lookup, ctx_add_var. apply lookup_insert_Some. right. split; [congruence | apply lookup_insert].
+            * simpl. exact I.
+          + eapply (@PVar (ctx_add_var (ctx_add_var C u (TBase BUnit) (EUnit tt)) z (TBase BUnit) e) z (TBase BUnit) e).
+            * unfold var_ctx_lookup, ctx_add_var. simpl. apply lookup_insert.
+            * simpl. exact I. }
+      simpl in Hent. apply String.eqb_neq in Hz. rewrite Hz in Hent. rewrite String.eqb_refl in Hent. exact Hent.
+Qed.
 Lemma step_lemma_entails_var :
   forall G e e' x tb t1 pred,
     step (G, e) (G, e') ->
@@ -6936,22 +7145,460 @@ Proof.
     + exact Hty.
 Qed.
 
+Lemma step_lemma_has_type_base_singleton :
+  forall G1 G2 e e' u e1 t tb,
+    step (add_ctx G2 G1, e) (add_ctx G2 G1, e') ->
+    has_type_pure empty_ctx e (TBase tb) ->
+    has_type
+      (ctx_add_var
+        (add_ctx G2 G1)
+        u
+        (TSet u tb (EEq (EVar u) e))
+        (EVar u))
+      e1 t <->
+    has_type
+      (ctx_add_var
+        (add_ctx G2 G1)
+        u
+        (TSet u tb (EEq (EVar u) e'))
+        (EVar u))
+      e1 t.
+Proof.
+  intros G1 G2 e e' u e1 t tb Hstep Hpure.
+  destruct tb.
+  - split; intro Hty.
+    + eapply subsumption_has_type_var_ctx.
+      * intros C.
+        exact (step_lemma_subtype_base_singleton_backward G1 G2 e e' u (EVar u) C BString Hstep Hpure).
+      * exact Hty.
+    + eapply subsumption_has_type_var_ctx.
+      * intros C.
+        exact (step_lemma_subtype_base_singleton_forward G1 G2 e e' u (EVar u) C BString Hstep Hpure).
+      * exact Hty.
+  - exact (step_lemma_has_type_bool_singleton G1 G2 e e' u e1 t Hstep Hpure).
+  - split; intro Hty.
+    + eapply subsumption_has_type_var_ctx.
+      * intros C.
+        exact (step_lemma_subtype_base_singleton_backward G1 G2 e e' u (EVar u) C BNat Hstep Hpure).
+      * exact Hty.
+    + eapply subsumption_has_type_var_ctx.
+      * intros C.
+        exact (step_lemma_subtype_base_singleton_forward G1 G2 e e' u (EVar u) C BNat Hstep Hpure).
+      * exact Hty.
+  - split; intro Hty.
+    + eapply subsumption_has_type_var_ctx.
+      * intros C.
+        exact (step_lemma_subtype_base_singleton_backward G1 G2 e e' u (EVar u) C BUnit Hstep Hpure).
+      * exact Hty.
+    + eapply subsumption_has_type_var_ctx.
+      * intros C.
+        exact (step_lemma_subtype_base_singleton_forward G1 G2 e e' u (EVar u) C BUnit Hstep Hpure).
+      * exact Hty.
+Qed.
 
+Lemma set_self_ty_valid_ctx :
+  forall C var tb pred term t_active witness,
+    ty_valid C (TSet var tb pred) ->
+    has_type_pure empty_ctx term (TBase tb) ->
+    ty_valid
+      (ctx_add_var C var t_active witness)
+      (TSet var tb (EAnd pred (EEq (EVar var) term))).
+Proof.
+  intros C var tb pred term t_active witness Hvalid Hterm.
+  eapply VSet.
+  rewrite ctx_add_var_shadow.
+  apply PAnd.
+  - exact (ty_valid_set_pred C var tb pred (make_expr tb (match tb with
+      | BString => EmptyString
+      | BBool => true
+      | BNat => 0
+      | BUnit => tt
+      end)) Hvalid).
+  - eapply PEq.
+    + eapply (@PVar (ctx_add_var C var (TBase tb) (make_expr tb (match tb with
+        | BString => EmptyString
+        | BBool => true
+        | BNat => 0
+        | BUnit => tt
+        end))) var (TBase tb) (make_expr tb (match tb with
+        | BString => EmptyString
+        | BBool => true
+        | BNat => 0
+        | BUnit => tt
+        end))).
+      * unfold var_ctx_lookup, ctx_add_var.
+        simpl.
+        apply lookup_insert.
+      * simpl. destruct tb; exact I.
+    + pose proof (weakening_has_type_pure_right empty_ctx
+        (ctx_add_var C var (TBase tb) (make_expr tb (match tb with
+        | BString => EmptyString
+        | BBool => true
+        | BNat => 0
+        | BUnit => tt
+        end))) term (TBase tb) Hterm) as Hweak.
+      rewrite add_ctx_empty_l in Hweak.
+      exact Hweak.
+Qed.
 
+Lemma step_lemma_entails_set_self_backward :
+  forall C e e' var tb pred (c : base_to_set tb),
+    step (ctx_add_var C var (TBase tb) (make_expr tb c), e)
+         (ctx_add_var C var (TBase tb) (make_expr tb c), e') ->
+    has_type_pure empty_ctx e (TBase tb) ->
+    ty_valid C (TSet var tb pred) ->
+    entails (ctx_add_var C var (TBase tb) (make_expr tb c))
+      (EImp
+        (EAnd pred (EEq (EVar var) e'))
+        (EAnd pred (EEq (EVar var) e))).
+Proof.
+  intros C e e' var tb pred c Hstep Hpure Hvalid.
+  set (z := fresh_string_list (var :: exp_vars pred)).
+  assert (Hzfresh : ~ List.In z (var :: exp_vars pred)).
+  { subst z. apply fresh_string_list_not_in_foundational. }
+  assert (Hzvar : z <> var).
+  { intro Heq. apply Hzfresh. subst z. simpl. auto. }
+  assert (Hzpred : ~ List.In z (exp_vars pred)).
+  { intro Hin. apply Hzfresh. simpl. right. exact Hin. }
+  assert (Hpred :
+    has_type_pure
+      (ctx_add_var (ctx_add_var C var (TBase tb) (make_expr tb c)) z (TBase tb) e)
+      (EAnd pred (EEq (EVar var) (EVar z)))
+      (TBase BBool)).
+  { apply PAnd.
+    - apply has_type_pure_weaken_fresh_var.
+      + exact Hzpred.
+      + exact (ty_valid_set_pred C var tb pred (make_expr tb c) Hvalid).
+    - eapply PEq.
+      + eapply (@PVar
+          (ctx_add_var (ctx_add_var C var (TBase tb) (make_expr tb c)) z (TBase tb) e)
+          var (TBase tb) (make_expr tb c)).
+        * unfold var_ctx_lookup, ctx_add_var.
+          simpl.
+          apply lookup_insert_Some.
+          right.
+          split; [congruence | apply lookup_insert].
+        * simpl. destruct tb; exact I.
+      + eapply (@PVar
+          (ctx_add_var (ctx_add_var C var (TBase tb) (make_expr tb c)) z (TBase tb) e)
+          z (TBase tb) e).
+        * unfold var_ctx_lookup, ctx_add_var.
+          simpl.
+          apply lookup_insert.
+        * simpl. destruct tb; exact I. }
+  pose proof (step_lemma_entails_var_backward
+    (ctx_add_var C var (TBase tb) (make_expr tb c)) e e' z tb (TBase tb)
+    (EAnd pred (EEq (EVar var) (EVar z))) Hstep Hpure eq_refl Hpred) as Hent.
+  simpl in Hent.
+  rewrite (expr_subst_exp_vars_fresh z e' pred Hzpred) in Hent.
+  rewrite (expr_subst_exp_vars_fresh z e pred Hzpred) in Hent.
+  apply String.eqb_neq in Hzvar.
+  rewrite Hzvar in Hent.
+  rewrite String.eqb_refl in Hent.
+  exact Hent.
+Qed.
 
+Lemma step_lemma_entails_set_self_forward :
+  forall C e e' var tb pred (c : base_to_set tb),
+    step (ctx_add_var C var (TBase tb) (make_expr tb c), e)
+         (ctx_add_var C var (TBase tb) (make_expr tb c), e') ->
+    has_type_pure empty_ctx e (TBase tb) ->
+    ty_valid C (TSet var tb pred) ->
+    entails (ctx_add_var C var (TBase tb) (make_expr tb c))
+      (EImp
+        (EAnd pred (EEq (EVar var) e))
+        (EAnd pred (EEq (EVar var) e'))).
+Proof.
+  intros C e e' var tb pred c Hstep Hpure Hvalid.
+  set (z := fresh_string_list (var :: exp_vars pred)).
+  assert (Hzfresh : ~ List.In z (var :: exp_vars pred)).
+  { subst z. apply fresh_string_list_not_in_foundational. }
+  assert (Hzvar : z <> var).
+  { intro Heq. apply Hzfresh. subst z. simpl. auto. }
+  assert (Hzpred : ~ List.In z (exp_vars pred)).
+  { intro Hin. apply Hzfresh. simpl. right. exact Hin. }
+  assert (Hpred :
+    has_type_pure
+      (ctx_add_var (ctx_add_var C var (TBase tb) (make_expr tb c)) z (TBase tb) e)
+      (EAnd pred (EEq (EVar var) (EVar z)))
+      (TBase BBool)).
+  { apply PAnd.
+    - apply has_type_pure_weaken_fresh_var.
+      + exact Hzpred.
+      + exact (ty_valid_set_pred C var tb pred (make_expr tb c) Hvalid).
+    - eapply PEq.
+      + eapply (@PVar
+          (ctx_add_var (ctx_add_var C var (TBase tb) (make_expr tb c)) z (TBase tb) e)
+          var (TBase tb) (make_expr tb c)).
+        * unfold var_ctx_lookup, ctx_add_var.
+          simpl.
+          apply lookup_insert_Some.
+          right.
+          split; [congruence | apply lookup_insert].
+        * simpl. destruct tb; exact I.
+      + eapply (@PVar
+          (ctx_add_var (ctx_add_var C var (TBase tb) (make_expr tb c)) z (TBase tb) e)
+          z (TBase tb) e).
+        * unfold var_ctx_lookup, ctx_add_var.
+          simpl.
+          apply lookup_insert.
+        * simpl. destruct tb; exact I. }
+  pose proof (step_lemma_entails_var_forward
+    (ctx_add_var C var (TBase tb) (make_expr tb c)) e e' z tb (TBase tb)
+    (EAnd pred (EEq (EVar var) (EVar z))) Hstep Hpure eq_refl Hpred) as Hent.
+  simpl in Hent.
+  rewrite (expr_subst_exp_vars_fresh z e' pred Hzpred) in Hent.
+  rewrite (expr_subst_exp_vars_fresh z e pred Hzpred) in Hent.
+  apply String.eqb_neq in Hzvar.
+  rewrite Hzvar in Hent.
+  rewrite String.eqb_refl in Hent.
+  exact Hent.
+Qed.
 
+Definition default_base_value (tb : BaseT) : base_to_set tb :=
+  match tb with
+  | BString => EmptyString
+  | BBool => true
+  | BNat => 0
+  | BUnit => tt
+  end.
 
+Lemma base_singleton_ty_valid :
+  forall C u tb e,
+    has_type_pure empty_ctx e (TBase tb) ->
+    ty_valid C (TSet u tb (EEq (EVar u) e)).
+Proof.
+  intros C u tb e Hpure.
+  eapply VSet.
+  eapply PEq.
+  - eapply (@PVar (ctx_add_var C u (TBase tb) (make_expr tb (default_base_value tb)))
+      u (TBase tb) (make_expr tb (default_base_value tb))).
+    + unfold var_ctx_lookup, ctx_add_var.
+      simpl.
+      apply lookup_insert.
+    + simpl. destruct tb; exact I.
+  - pose proof (weakening_has_type_pure_right empty_ctx
+      (ctx_add_var C u (TBase tb) (make_expr tb (default_base_value tb)))
+      e (TBase tb) Hpure) as Hweak.
+    rewrite add_ctx_empty_l in Hweak.
+    exact Hweak.
+Qed.
 
+Lemma set_self_ty_valid :
+  forall C var tb pred term,
+    ty_valid C (TSet var tb pred) ->
+    has_type_pure empty_ctx term (TBase tb) ->
+    ty_valid C (TSet var tb (EAnd pred (EEq (EVar var) term))).
+Proof.
+  intros C var tb pred term Hvalid Hterm.
+  eapply VSet.
+  apply PAnd.
+  - exact (ty_valid_set_pred C var tb pred (make_expr tb (default_base_value tb)) Hvalid).
+  - eapply PEq.
+    + eapply (@PVar (ctx_add_var C var (TBase tb) (make_expr tb (default_base_value tb)))
+        var (TBase tb) (make_expr tb (default_base_value tb))).
+      * unfold var_ctx_lookup, ctx_add_var.
+        simpl.
+        apply lookup_insert.
+      * simpl. destruct tb; exact I.
+    + pose proof (weakening_has_type_pure_right empty_ctx
+        (ctx_add_var C var (TBase tb) (make_expr tb (default_base_value tb)))
+        term (TBase tb) Hterm) as Hweak.
+      rewrite add_ctx_empty_l in Hweak.
+      exact Hweak.
+Qed.
 
+Lemma step_lemma_subtype_base_singleton_plain_backward :
+  forall G1 G2 C e e' u tb,
+    step (G1, e) (G2, e') ->
+    has_type_pure empty_ctx e (TBase tb) ->
+    subtype C
+      (TSet u tb (EEq (EVar u) e'))
+      (TSet u tb (EEq (EVar u) e)).
+Proof.
+  intros G1 G2 C e e' u tb Hstep Hpure.
+  eapply SSet with (c := default_base_value tb).
+  - apply base_singleton_ty_valid.
+    exact (preservation_pure_terms_sigma_foundational _ _ Hstep (TBase tb) Hpure).
+  - apply base_singleton_ty_valid.
+    exact Hpure.
+  - pose proof (pure_step_any_ctx_foundational G1 G2 e e'
+      (ctx_add_var C u (TBase tb) (make_expr tb (default_base_value tb)))
+      Hstep (TBase tb) Hpure) as Hstep'.
+    set (z := fresh_string_list [u]).
+    assert (Hzneq : z <> u) by (subst z; apply fresh_string_list_singleton_neq).
+    assert (Hz : (z =? u)%string = false) by (apply String.eqb_neq; exact Hzneq).
+    pose proof (step_lemma_entails_var_backward
+      (ctx_add_var C u (TBase tb) (make_expr tb (default_base_value tb)))
+      e e' z tb (TBase tb) (EEq (EVar u) (EVar z))
+      Hstep' Hpure eq_refl) as Hent_base.
+    simpl in Hent_base.
+    rewrite Hz in Hent_base.
+    rewrite String.eqb_refl in Hent_base.
+    apply Hent_base.
+    eapply PEq.
+    + eapply (@PVar (ctx_add_var (ctx_add_var C u (TBase tb) (make_expr tb (default_base_value tb))) z (TBase tb) e)
+        u (TBase tb) (make_expr tb (default_base_value tb))).
+      * unfold var_ctx_lookup, ctx_add_var.
+        simpl.
+        apply lookup_insert_Some.
+        right. split; [exact Hzneq | apply lookup_insert].
+      * simpl. destruct tb; exact I.
+    + eapply (@PVar (ctx_add_var (ctx_add_var C u (TBase tb) (make_expr tb (default_base_value tb))) z (TBase tb) e)
+        z (TBase tb) e).
+      * unfold var_ctx_lookup, ctx_add_var.
+        simpl.
+        apply lookup_insert.
+      * simpl. destruct tb; exact I.
+Qed.
 
+Lemma step_lemma_subtype_base_singleton_plain_forward :
+  forall G1 G2 C e e' u tb,
+    step (G1, e) (G2, e') ->
+    has_type_pure empty_ctx e (TBase tb) ->
+    subtype C
+      (TSet u tb (EEq (EVar u) e))
+      (TSet u tb (EEq (EVar u) e')).
+Proof.
+  intros G1 G2 C e e' u tb Hstep Hpure.
+  eapply SSet with (c := default_base_value tb).
+  - apply base_singleton_ty_valid.
+    exact Hpure.
+  - apply base_singleton_ty_valid.
+    exact (preservation_pure_terms_sigma_foundational _ _ Hstep (TBase tb) Hpure).
+  - pose proof (pure_step_any_ctx_foundational G1 G2 e e'
+      (ctx_add_var C u (TBase tb) (make_expr tb (default_base_value tb)))
+      Hstep (TBase tb) Hpure) as Hstep'.
+    set (z := fresh_string_list [u]).
+    assert (Hzneq : z <> u) by (subst z; apply fresh_string_list_singleton_neq).
+    assert (Hz : (z =? u)%string = false) by (apply String.eqb_neq; exact Hzneq).
+    pose proof (step_lemma_entails_var_forward
+      (ctx_add_var C u (TBase tb) (make_expr tb (default_base_value tb)))
+      e e' z tb (TBase tb) (EEq (EVar u) (EVar z))
+      Hstep' Hpure eq_refl) as Hent_base.
+    simpl in Hent_base.
+    rewrite Hz in Hent_base.
+    rewrite String.eqb_refl in Hent_base.
+    apply Hent_base.
+    eapply PEq.
+    + eapply (@PVar (ctx_add_var (ctx_add_var C u (TBase tb) (make_expr tb (default_base_value tb))) z (TBase tb) e)
+        u (TBase tb) (make_expr tb (default_base_value tb))).
+      * unfold var_ctx_lookup, ctx_add_var.
+        simpl.
+        apply lookup_insert_Some.
+        right. split; [exact Hzneq | apply lookup_insert].
+      * simpl. destruct tb; exact I.
+    + eapply (@PVar (ctx_add_var (ctx_add_var C u (TBase tb) (make_expr tb (default_base_value tb))) z (TBase tb) e)
+        z (TBase tb) e).
+      * unfold var_ctx_lookup, ctx_add_var.
+        simpl.
+        apply lookup_insert.
+      * simpl. destruct tb; exact I.
+Qed.
 
+Lemma step_lemma_subtype_set_self_plain_backward :
+  forall G1 G2 C e e' var tb pred,
+    step (G1, e) (G2, e') ->
+    has_type_pure empty_ctx e (TBase tb) ->
+    ty_valid C (TSet var tb pred) ->
+    subtype C
+      (TSet var tb (EAnd pred (EEq (EVar var) e')))
+      (TSet var tb (EAnd pred (EEq (EVar var) e))).
+Proof.
+  intros G1 G2 C e e' var tb pred Hstep Hpure Hvalid.
+  eapply SSet with (c := default_base_value tb).
+  - apply set_self_ty_valid.
+    + exact Hvalid.
+    + exact (preservation_pure_terms_sigma_foundational _ _ Hstep (TBase tb) Hpure).
+  - apply set_self_ty_valid.
+    + exact Hvalid.
+    + exact Hpure.
+  - eapply step_lemma_entails_set_self_backward.
+    + eapply pure_step_any_ctx_foundational.
+      * exact Hstep.
+      * exact Hpure.
+    + exact Hpure.
+    + exact Hvalid.
+Qed.
 
+Lemma step_lemma_subtype_set_self_plain_forward :
+  forall G1 G2 C e e' var tb pred,
+    step (G1, e) (G2, e') ->
+    has_type_pure empty_ctx e (TBase tb) ->
+    ty_valid C (TSet var tb pred) ->
+    subtype C
+      (TSet var tb (EAnd pred (EEq (EVar var) e)))
+      (TSet var tb (EAnd pred (EEq (EVar var) e'))).
+Proof.
+  intros G1 G2 C e e' var tb pred Hstep Hpure Hvalid.
+  eapply SSet with (c := default_base_value tb).
+  - apply set_self_ty_valid.
+    + exact Hvalid.
+    + exact Hpure.
+  - apply set_self_ty_valid.
+    + exact Hvalid.
+    + exact (preservation_pure_terms_sigma_foundational _ _ Hstep (TBase tb) Hpure).
+  - eapply step_lemma_entails_set_self_forward.
+    + eapply pure_step_any_ctx_foundational.
+      * exact Hstep.
+      * exact Hpure.
+    + exact Hpure.
+    + exact Hvalid.
+Qed.
 
+Lemma step_lemma_subtype_set_self_backward :
+  forall G1 G2 e e' var witness C tb pred,
+    step (add_ctx G2 G1, e) (add_ctx G2 G1, e') ->
+    has_type_pure empty_ctx e (TBase tb) ->
+    ty_valid C (TSet var tb pred) ->
+    subtype
+      (ctx_add_var C var (TSet var tb (EAnd pred (EEq (EVar var) e'))) witness)
+      (TSet var tb (EAnd pred (EEq (EVar var) e')))
+      (TSet var tb (EAnd pred (EEq (EVar var) e))).
+Proof.
+  intros G1 G2 e e' var witness C tb pred Hstep Hpure Hvalid.
+  eapply SSet with (c := default_base_value tb).
+  - apply set_self_ty_valid_ctx.
+    + exact Hvalid.
+    + exact (preservation_pure_terms_sigma_foundational _ _ Hstep (TBase tb) Hpure).
+  - apply set_self_ty_valid_ctx.
+    + exact Hvalid.
+    + exact Hpure.
+  - rewrite ctx_add_var_shadow.
+    eapply step_lemma_entails_set_self_backward.
+    + eapply pure_step_any_ctx_foundational.
+      * exact Hstep.
+      * exact Hpure.
+    + exact Hpure.
+    + exact Hvalid.
+Qed.
 
-
-
-
-
+Lemma step_lemma_subtype_set_self_forward :
+  forall G1 G2 e e' var witness C tb pred,
+    step (add_ctx G2 G1, e) (add_ctx G2 G1, e') ->
+    has_type_pure empty_ctx e (TBase tb) ->
+    ty_valid C (TSet var tb pred) ->
+    subtype
+      (ctx_add_var C var (TSet var tb (EAnd pred (EEq (EVar var) e))) witness)
+      (TSet var tb (EAnd pred (EEq (EVar var) e)))
+      (TSet var tb (EAnd pred (EEq (EVar var) e'))).
+Proof.
+  intros G1 G2 e e' var witness C tb pred Hstep Hpure Hvalid.
+  eapply SSet with (c := default_base_value tb).
+  - apply set_self_ty_valid_ctx.
+    + exact Hvalid.
+    + exact Hpure.
+  - apply set_self_ty_valid_ctx.
+    + exact Hvalid.
+    + exact (preservation_pure_terms_sigma_foundational _ _ Hstep (TBase tb) Hpure).
+  - rewrite ctx_add_var_shadow.
+    eapply step_lemma_entails_set_self_forward.
+    + eapply pure_step_any_ctx_foundational.
+      * exact Hstep.
+      * exact Hpure.
+    + exact Hpure.
+    + exact Hvalid.
+Qed.
 
 
 

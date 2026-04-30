@@ -1732,7 +1732,7 @@ Proof.
     eapply TAppPure.
     + exact Harg.
     + match goal with
-      | Hpure : forall tau, has_type_pure _ e₂'' tau |- _ => exact Hpure
+      | Hpure : has_type_pure _ e₂'' (essential_type τ₁) |- _ => exact Hpure
       end.
     + exact IHHtr1.
   - match goal with
